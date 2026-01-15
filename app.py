@@ -84,7 +84,13 @@ elif app_mode == "Station Configuration":
                         for c in ref_cols:
                             unit = metadata.get(c, "")
                             if c not in current_thresholds:
-                                current_thresholds[c] = {"min": None, "max": None, "rate_of_change": None, "unit": unit}
+                                defaults = qaqc.DEFAULT_THRESHOLDS.get(c, {})
+                                current_thresholds[c] = {
+                                    "min": defaults.get("min"), 
+                                    "max": defaults.get("max"), 
+                                    "rate_of_change": None, 
+                                    "unit": unit
+                                }
                                 added_count += 1
                             else:
                                 if "unit" not in current_thresholds[c] or not current_thresholds[c]["unit"]:

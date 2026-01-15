@@ -4,81 +4,81 @@
         "thresholds": {
             "BattV": {
                 "unit": "Volts",
-                "min": 1.0,
-                "max": 1.0,
-                "rate_of_change": null
+                "min": 0.0,
+                "max": 20.0,
+                "rate_of_change": 5.0
             },
             "AirTC_Avg": {
                 "unit": "Deg C",
-                "min": 1.0,
-                "max": 5.0,
-                "rate_of_change": null
+                "min": 10.0,
+                "max": 3.0,
+                "rate_of_change": 2.0
             },
             "RH": {
                 "unit": "%",
-                "min": 10.0,
-                "max": 12.0,
-                "rate_of_change": null
+                "min": 0.0,
+                "max": 100.0,
+                "rate_of_change": 1.0
             },
             "Snow_Depth_Avg": {
                 "unit": "meters",
-                "min": 0.0,
-                "max": 5.0,
-                "rate_of_change": null
+                "min": 1.0,
+                "max": 10.0,
+                "rate_of_change": 3.0
             },
             "SignalQuality_Avg": {
                 "unit": "",
-                "min": null,
-                "max": null,
-                "rate_of_change": null
+                "min": 89.0,
+                "max": 100.0,
+                "rate_of_change": 1.0
             },
             "Rain_mm_Tot": {
                 "unit": "mm",
-                "min": 1.0,
-                "max": 1.0,
-                "rate_of_change": null
+                "min": 0.0,
+                "max": 50.0,
+                "rate_of_change": 2.0
             },
             "WS_ms_Avg": {
                 "unit": "meters/second",
-                "min": 12.0,
-                "max": 1.0,
-                "rate_of_change": null
+                "min": 30.0,
+                "max": 20.0,
+                "rate_of_change": 3.0
             },
             "WS_ms_Std": {
                 "unit": "meters/second",
-                "min": 1.0,
-                "max": 2.0,
-                "rate_of_change": null
+                "min": 12.0,
+                "max": 16.0,
+                "rate_of_change": 4.0
             },
             "WindDir": {
                 "unit": "degrees",
-                "min": null,
-                "max": null,
-                "rate_of_change": null
+                "min": 10.0,
+                "max": 29.0,
+                "rate_of_change": 5.0
             },
             "Pressure": {
                 "unit": "",
-                "min": null,
-                "max": null,
-                "rate_of_change": null
+                "min": 9.0,
+                "max": 10.0,
+                "rate_of_change": 5.0
             },
             "GroundTemp_10cm": {
                 "unit": "Deg C",
-                "min": null,
-                "max": null,
-                "rate_of_change": null
+                "min": 5.0,
+                "max": 10.0,
+                "rate_of_change": 6.0
             },
             "SoilTemp_20cm": {
                 "unit": "Deg C",
-                "min": null,
-                "max": null,
-                "rate_of_change": null
+                "min": 9.0,
+                "max": 19.0,
+                "rate_of_change": 7.0
             },
             "LakeTemp": {
                 "unit": "Deg C",
-                "min": null,
-                "max": null,
-                "rate_of_change": null
+                "min": 5.0,
+                "max": 25.0,
+                "rate_of_change": 9.0
             }
         }
     }

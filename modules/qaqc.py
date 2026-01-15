@@ -1,6 +1,10 @@
 import pandas as pd
 import numpy as np
 
+DEFAULT_THRESHOLDS = {
+    "RH": {"min": 0, "max": 100}
+}
+
 def apply_qc(df, station_config):
     """
     Applies QA/QC flags to the dataframe based on station_config thresholds.
@@ -22,21 +26,23 @@ def apply_qc(df, station_config):
         # Force numeric, coercing errors to NaN
         series = pd.to_numeric(df_qc[col], errors='coerce')
         
-        qc_codes = []
-        
-        # Vectorized checks are faster, but for complex string concatenation of multiple flags 
-        # (e.g., "High, Rate"), iteration or clever apply is needed. 
-        # For simplicity and readability in this prototype:
-        
         # 1. Range Check (Min/Max)
         min_val = rules.get("min")
         max_val = rules.get("max")
+
+        # Apply defaults if values are missing and column is known
+        if col in DEFAULT_THRESHOLDS:
+            if min_val is None:
+                min_val = DEFAULT_THRESHOLDS[col]["min"]
+            if max_val is None:
+                max_val = DEFAULT_THRESHOLDS[col]["max"]
         
         if min_val is not None:
              df_qc.loc[series < min_val, flag_col] += "Low "
              
         if max_val is not None:
              df_qc.loc[series > max_val, flag_col] += "High "
+
 
         # 2. Rate of Change Check
         rate_val = rules.get("rate_of_change")
