@@ -1,0 +1,7 @@
+weatherqa/
+__pycache__/
+*.pyc
+.DS_Store
+*.csv
+!02FW002_raw_CR1000X_3875_20250911 (1).csv
+.env
