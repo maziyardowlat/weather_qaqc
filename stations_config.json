@@ -81,5 +81,202 @@
                 "rate_of_change": 9.0
             }
         }
+    },
+    "Cheslata Lake": {
+        "id": "02FW005",
+        "thresholds": {
+            "battv": {
+                "unit": "Volts",
+                "min": 3.0,
+                "max": 5.0,
+                "rate_of_change": 1.0
+            },
+            "Ptmp": {
+                "unit": "Deg C",
+                "min": 1.0,
+                "max": 5.0,
+                "rate_of_change": null
+            },
+            "dsws": {
+                "unit": "W/m^2",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            },
+            "rtot": {
+                "unit": "mm",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            },
+            "strike": {
+                "unit": "count",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            },
+            "strikeD": {
+                "unit": "kilometers",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            },
+            "wind": {
+                "unit": "meters/second",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            },
+            "wdir": {
+                "unit": "degrees",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            },
+            "windM": {
+                "unit": "meters/second",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            },
+            "tmp": {
+                "unit": "Deg C",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            },
+            "vap": {
+                "unit": "mbar",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            },
+            "press": {
+                "unit": "mbar",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            },
+            "rh": {
+                "unit": "%",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            },
+            "tmp2": {
+                "unit": "Deg C",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            },
+            "tiltNS": {
+                "unit": "degrees",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            },
+            "tiltWE": {
+                "unit": "degrees",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            },
+            "dswt": {
+                "unit": "MJ/m^2",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            },
+            "CVMeta": {
+                "unit": "",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            },
+            "Invalid_Wind": {
+                "unit": "",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            },
+            "dt": {
+                "unit": "",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            },
+            "tcdt": {
+                "unit": "",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            },
+            "snod": {
+                "unit": "",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            },
+            "swin": {
+                "unit": "W/m^2",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            },
+            "swout": {
+                "unit": "W/m^2",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            },
+            "lwin": {
+                "unit": "W/m^2",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            },
+            "lwout": {
+                "unit": "W/m^2",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            },
+            "swnet": {
+                "unit": "W/m^2",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            },
+            "lwnet": {
+                "unit": "W/m^2",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            },
+            "swalbedo": {
+                "unit": "W/m^2",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            },
+            "nr": {
+                "unit": "W/m^2",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            },
+            "stmp1": {
+                "unit": "Deg C",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            },
+            "stmp2": {
+                "unit": "Deg C",
+                "min": null,
+                "max": null,
+                "rate_of_change": null
+            }
+        }
     }
 }
