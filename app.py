@@ -205,6 +205,12 @@ elif app_mode == "Data Processing":
                         # Apply QA/QC
                         config = stations[selected_station]
                         df_qc = qaqc.apply_qc(df_raw, config)
+
+                        # Add Station ID Column
+                        station_id = config.get("id", "")
+                        if "Station_ID" not in df_qc.columns:
+                            df_qc.insert(0, "Station_ID", station_id)
+
                         
                         # Store in session state for export (Phase 5)
                         st.session_state["qc_result"] = df_qc
@@ -245,8 +251,18 @@ elif app_mode == "Data Processing":
                 st.subheader("Export Options")
                 
                 col_tz1, col_tz2 = st.columns(2)
+                
+                # Source Timezone Map (User requested specific fixed offsets)
+                source_tz_map = {
+                    "US/PDT": "Etc/GMT+7", # UTC-7
+                    "US/PST": "Etc/GMT+8", # UTC-8
+                    "UTC": "UTC"
+                }
+
                 with col_tz1:
-                    from_tz = st.selectbox("Source Timezone", ["US/Pacific", "UTC", "America/Vancouver"], index=0)
+                    from_tz_label = st.selectbox("Source Timezone", list(source_tz_map.keys()), index=0)
+                    from_tz = source_tz_map[from_tz_label]
+                    
                 with col_tz2:
                     to_tz = st.selectbox("Target Timezone for Tidy File", ["UTC", "US/Pacific", "America/Vancouver"], index=0)
                 
@@ -256,7 +272,7 @@ elif app_mode == "Data Processing":
                      if 'TIMESTAMP' in df_export.columns:
                          df_export['TIMESTAMP'] = utils.convert_timezone(df_export, 'TIMESTAMP', from_tz, to_tz)
                          st.session_state["qc_export"] = df_export
-                         st.success(f"Converted timestamps from {from_tz} to {to_tz}")
+                         st.success(f"Converted timestamps from {from_tz_label} to {to_tz}")
                      else:
                          st.warning("No TIMESTAMP column found.")
                 

@@ -17,11 +17,8 @@ def convert_timezone(df, timestamp_col, from_tz, to_tz):
             
         converted = localized.dt.tz_convert(to_tz)
         
-        # If exporting, we might want to remove offset info to keep it simple, 
-        # but standardized CSVs usually prefer ISO format or just local time.
-        # The user requested switching it for the tidy file. 
-        # We will return the series with tz info.
-        return converted
+        # User requested "just one number" (naive timestamp), stripping offset info.
+        return converted.dt.tz_localize(None)
     except Exception as e:
         # Fallback or error logging
         print(f"Timezone conversion error: {e}")

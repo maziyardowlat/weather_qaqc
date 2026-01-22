@@ -30,13 +30,21 @@ We apply a "Swiss Cheese" model of QC, where data must pass multiple layers of f
 
 ### Level 1: Hard Limits (Physics & Sensor Specs)
 
-_from Official CAMnet Procedures_
+_from Official QAQC Workshop Jan 26_
+
 These are absolute "Sanity Checks". If a value exceeds these, the sensor is broken or the data is garbage.
 
-- **Temperature**: -50°C to +50°C
-- **Humidity**: 0% to 100%
-- **Pressure**: 700 to 1100 mbar
-- **Solar Radiation**: Cannot be negative (< 0)
+| Parameter           | Hard Limit               | Rate of Change (15min)    |
+| :------------------ | :----------------------- | :------------------------ |
+| **Temperature**     | -50°C to +50°C           | **±5°C**                  |
+| **Humidity**        | 0% to 100%               | **±20%**                  |
+| **Pressure**        | 850\* to 1050 hPa        | **10 hPa**                |
+| **Wind Speed**      | Max 50 m/s               | _No limit_                |
+| **Rainfall**        | -                        | **20 mm** (max per 15min) |
+| **Snow Depth**      | Max 5m                   | **±100 mm**               |
+| **Solar Radiation** | Cannot be negative (< 0) | -                         |
+
+_(Note: Pressure Min 850 hPa is site specific, verify for high altitude stations)._
 
 ### Level 2: Seasonal Limits (Monthly)
 
