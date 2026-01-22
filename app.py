@@ -61,6 +61,8 @@ elif app_mode == "Station Configuration":
         
         # Metadata
         station_id = st.text_input("Station ID", value=existing_config.get("id", ""))
+
+        station_logger = st.text_input("Station Logger", value=existing_config.get("logger", ""))
         
         # Threshold Editor
         st.markdown("### QC Thresholds")
@@ -156,6 +158,7 @@ elif app_mode == "Station Configuration":
                 # Update main dict
                 stations[current_station] = {
                     "id": station_id,
+                    "logger": station_logger,
                     "thresholds": new_thresholds
                 }
                 
@@ -192,24 +195,69 @@ elif app_mode == "Data Processing":
             st.info(f"Processing File: {uploaded_file.name} for Station: {selected_station}")
             
             # 3. Parse and Run
-            if st.button("Run QA/QC"):
-                with st.spinner("Parsing and checking data..."):
-                    # Parse with skip_rows
-                    df_raw, _, error = parser.parse_toa5(uploaded_file, skip_rows=skip_rows)
-                    
-                    if error:
-                        st.error(f"Error parsing file: {error}")
+            # Pre-load to check columns
+            if 'df_preview' not in st.session_state or st.session_state.get('last_uploaded') != uploaded_file.name:
+                 with st.spinner("Analyzing file structure..."):
+                    df_pre, _, err = parser.parse_toa5(uploaded_file, skip_rows=skip_rows)
+                    if not err:
+                        st.session_state['df_preview'] = df_pre
+                        st.session_state['last_uploaded'] = uploaded_file.name
                     else:
-                        st.success(f"Successfully loaded {len(df_raw)} records.")
-                        
-                        # Apply QA/QC
-                        config = stations[selected_station]
-                        df_qc = qaqc.apply_qc(df_raw, config)
+                        st.error(f"Error reading file: {err}")
+
+            if 'df_preview' in st.session_state:
+                df_raw = st.session_state['df_preview']
+                config = stations[selected_station]
+                thresholds = config.get("thresholds", {})
+                
+                # Identify Mismatches
+                expected_cols = [c for c in thresholds.keys()]
+                file_cols = list(df_raw.columns)
+                
+                missing_cols = [c for c in expected_cols if c not in file_cols]
+                
+                column_mapping = {}
+                
+                if missing_cols:
+                    st.warning(f"Column Mismatch Detected! The following columns expected by the station config are missing in the file: {', '.join(missing_cols)}")
+                    st.write("Please map the file columns to the expected station columns:")
+                    
+                    with st.expander("Column Mapping", expanded=True):
+                        for missing in missing_cols:
+                            # Suggest close match? For now just select box
+                            # Filter out columns that are already matched perfectly
+                            available_options = ["(Select Mapping)"] + [c for c in file_cols if c not in expected_cols] 
+                            selected_map = st.selectbox(f"Map file column to '{missing}'", available_options, key=f"map_{missing}")
+                            
+                            if selected_map != "(Select Mapping)":
+                                column_mapping[missing] = selected_map
+                    
+                    if len(column_mapping) < len(missing_cols):
+                        st.error("Please map all missing columns to proceed.")
+                
+                # Run Button (Conditioned on mapping)
+                if not missing_cols or len(column_mapping) == len(missing_cols):
+                    if st.button("Run QA/QC"):
+                        with st.spinner("Processing..."):
+                            # Apply Mapping
+                            if column_mapping:
+                                # Invert mapping: {Expected: File} -> {File: Expected} for rename
+                                rename_dict = {v: k for k, v in column_mapping.items()}
+                                df_raw = df_raw.rename(columns=rename_dict)
+                                st.info(f"Applied column mapping: {rename_dict}")
+                            
+                            # Apply QA/QC
+                            df_qc = qaqc.apply_qc(df_raw, config)
 
                         # Add Station ID Column
                         station_id = config.get("id", "")
                         if "Station_ID" not in df_qc.columns:
                             df_qc.insert(0, "Station_ID", station_id)
+                        
+                        logger_id = config.get("logger", "")
+                        if "Logger_ID" not in df_qc.columns:
+                            df_qc.insert(1, "Logger_ID", logger_id)
+                            
 
                         
                         # Store in session state for export (Phase 5)

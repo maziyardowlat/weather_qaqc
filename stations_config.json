@@ -1,6 +1,7 @@
 {
     "Ness Lake": {
         "id": "02FW002",
+        "logger": "3875",
         "thresholds": {
             "BattV": {
                 "unit": "Volts",
@@ -84,6 +85,7 @@
     },
     "Cheslata Lake": {
         "id": "02FW005",
+        "logger": "1379",
         "thresholds": {
             "battv": {
                 "unit": "Volts",
