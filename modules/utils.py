@@ -68,7 +68,7 @@ def format_tidy_csv(df, station_config=None, header_info=None, process_codes=Non
             row2.append("TS")
         elif col == "RECORD":
             row2.append("RN")
-        elif col in ["Station_ID", "Logger_ID", "Logger_Model"]:
+        elif col in ["Station_ID", "Logger_ID", "Logger_Model", "Data_ID"]:
             row2.append("") # No units for metadata
         else:
             # Check config

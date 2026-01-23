@@ -224,15 +224,18 @@ elif app_mode == "Data Processing":
                 
                 # Metadata Inputs (Data Ingestion)
                 st.subheader("Data Metadata")
-                col_meta1, col_meta2 = st.columns(2)
+                col_meta1, col_meta2, col_meta3 = st.columns(3)
                 with col_meta1:
                     logger_model_input = st.text_input("Logger Model", value=header_info.get("logger_model", "CR350"))
                 with col_meta2:
                     logger_serial_input = st.text_input("Logger Serial", value=header_info.get("logger_serial", ""))
+                with col_meta3:
+                    data_id_input = st.text_input("Data ID", value=header_info.get("data_id", ""))
                 
                 # Update header info in session state if user edits (so export picks it up)
                 header_info["logger_model"] = logger_model_input
                 header_info["logger_serial"] = logger_serial_input
+                header_info["data_id"] = data_id_input
                 st.session_state['header_info'] = header_info
                 
                 if missing_cols:
@@ -380,6 +383,10 @@ elif app_mode == "Data Processing":
                             # Let's add both.
                             df_qc.insert(1, "Logger_Model", logger_model_input)
                             df_qc.insert(2, "Logger_ID", logger_serial_input)
+                        
+                        # Add Data ID Column
+                        if "Data_ID" not in df_qc.columns:
+                             df_qc.insert(3, "Data_ID", data_id_input) # Insert after Logger_ID (index 2)
                             
 
                         
