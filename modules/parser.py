@@ -33,10 +33,20 @@ def parse_toa5(uploaded_file, skip_rows=None):
         # Read first 4 lines
         header_lines = [uploaded_file.readline().decode('utf-8').strip().replace('"','') for _ in range(4)]
         
+        # Line 0: Environment Info
+        # TOA5, Station, LoggerModel, Serial, OS, Program, Sig, Table
+        env_parts = header_lines[0].split(',')
+        header_info = {
+            "logger_model": env_parts[2] if len(env_parts) > 2 else "Unknown",
+            "logger_serial": env_parts[3] if len(env_parts) > 3 else "Unknown"
+        }
+
         # Line 1: Columns
         columns = header_lines[1].split(',')
         # Line 2: Units
         units = header_lines[2].split(',')
+        # Line 3: Process Codes
+        process_codes = header_lines[3].split(',')
         
         # Create metadata map {Column: Unit}
         # Handle cases where lengths might mismatch
@@ -52,6 +62,7 @@ def parse_toa5(uploaded_file, skip_rows=None):
         if 'TIMESTAMP' in df.columns:
             df['TIMESTAMP'] = pd.to_datetime(df['TIMESTAMP'], errors='coerce')
         
-        return df, metadata, None
+        return df, metadata, header_info, process_codes, None
     except Exception as e:
-        return None, {}, str(e)
+        return None, {}, {}, [], str(e)
+

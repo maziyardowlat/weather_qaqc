@@ -61,12 +61,10 @@ elif app_mode == "Station Configuration":
         
         # Metadata
         station_id = st.text_input("Station ID", value=existing_config.get("id", ""))
-
-        station_logger = st.text_input("Station Logger", value=existing_config.get("logger", ""))
         
         # Threshold Editor
         st.markdown("### QC Thresholds")
-        st.info("Define the specific thresholds for each column in your raw file.")
+        st.info("Define the specific thresholds for each column. You can add new columns by clicking the '+' button or delete existing ones by selecting the row and hitting delete (or using the trash icon).")
         
         # Helper: Populate from File
         with st.expander("Auto-fill Columns from Reference File"):
@@ -76,7 +74,7 @@ elif app_mode == "Station Configuration":
                 # Assuming standard TOA5 skip logic for now, or just reading the first few lines?
                 # Let's try to use the parser with default skip defaults
                 try:
-                    df_ref, metadata, _ = parser.parse_toa5(ref_file)
+                    df_ref, metadata, _, _ = parser.parse_toa5(ref_file)
                     if df_ref is not None:
                         ref_cols = [c for c in df_ref.columns if c not in ["TIMESTAMP", "RECORD"]]
                         # Merge into existing thresholds if not present
@@ -126,8 +124,8 @@ elif app_mode == "Station Configuration":
         
         # Configure column settings
         column_config = {
-            "Column Name": st.column_config.TextColumn(disabled=True),
-            "Units": st.column_config.TextColumn(disabled=True),
+            "Column Name": st.column_config.TextColumn(disabled=False),
+            "Units": st.column_config.TextColumn(disabled=False),
         }
         
         edited_df = st.data_editor(
@@ -158,7 +156,7 @@ elif app_mode == "Station Configuration":
                 # Update main dict
                 stations[current_station] = {
                     "id": station_id,
-                    "logger": station_logger,
+#                    "logger": station_logger, # Removed from config
                     "thresholds": new_thresholds
                 }
                 
@@ -197,16 +195,21 @@ elif app_mode == "Data Processing":
             # 3. Parse and Run
             # Pre-load to check columns
             if 'df_preview' not in st.session_state or st.session_state.get('last_uploaded') != uploaded_file.name:
-                 with st.spinner("Analyzing file structure..."):
-                    df_pre, _, err = parser.parse_toa5(uploaded_file, skip_rows=skip_rows)
+                with st.spinner("Analyzing file structure..."):
+                    df_preview, metadata, header_info, proc_codes, err = parser.parse_toa5(uploaded_file, skip_rows=skip_rows)
                     if not err:
-                        st.session_state['df_preview'] = df_pre
+                        st.session_state['df_preview'] = df_preview
+                        st.session_state['header_info'] = header_info
+                        st.session_state['process_codes'] = proc_codes
+                        st.session_state['file_meta'] = metadata
                         st.session_state['last_uploaded'] = uploaded_file.name
                     else:
                         st.error(f"Error reading file: {err}")
 
             if 'df_preview' in st.session_state:
                 df_raw = st.session_state['df_preview']
+                header_info = st.session_state.get('header_info', {})
+                file_meta = st.session_state.get('file_meta', {})
                 config = stations[selected_station]
                 thresholds = config.get("thresholds", {})
                 
@@ -217,6 +220,20 @@ elif app_mode == "Data Processing":
                 missing_cols = [c for c in expected_cols if c not in file_cols]
                 
                 column_mapping = {}
+                unit_mapping = {} # Store user choice for units
+                
+                # Metadata Inputs (Data Ingestion)
+                st.subheader("Data Metadata")
+                col_meta1, col_meta2 = st.columns(2)
+                with col_meta1:
+                    logger_model_input = st.text_input("Logger Model", value=header_info.get("logger_model", "CR350"))
+                with col_meta2:
+                    logger_serial_input = st.text_input("Logger Serial", value=header_info.get("logger_serial", ""))
+                
+                # Update header info in session state if user edits (so export picks it up)
+                header_info["logger_model"] = logger_model_input
+                header_info["logger_serial"] = logger_serial_input
+                st.session_state['header_info'] = header_info
                 
                 if missing_cols:
                     st.warning(f"Column Mismatch Detected! The following columns expected by the station config are missing in the file: {', '.join(missing_cols)}")
@@ -235,6 +252,38 @@ elif app_mode == "Data Processing":
                     if len(column_mapping) < len(missing_cols):
                         st.error("Please map all missing columns to proceed.")
                 
+                # Unit Conflict Check
+                # Check if mapped columns or existing columns have different units
+                mismatched_units = []
+                for col in expected_cols:
+                    if col in missing_cols and col not in column_mapping:
+                        continue # Skip unmapped
+                    
+                    # Determine source unit from file
+                    file_col = column_mapping.get(col, col) # Use mapped name or same name
+                    file_unit = file_meta.get(file_col, "")
+                    
+                    # Determine config unit
+                    config_unit = thresholds.get(col, {}).get("unit", "")
+                    
+                    # Normalize? For now exact string match
+                    if file_unit and config_unit and file_unit != config_unit:
+                        mismatched_units.append((col, config_unit, file_unit))
+                
+                if mismatched_units:
+                    st.warning(f"Unit Mismatch Detected for {len(mismatched_units)} columns.")
+                    with st.expander("Resolve Unit Conflicts", expanded=True):
+                        st.caption("Select which unit label to use for the final output.")
+                        for col, c_unit, f_unit in mismatched_units:
+                            # Dropdown
+                            options = [f"Station Config: {c_unit}", f"File: {f_unit}"]
+                            choice = st.selectbox(f"Unit for '{col}'", options, key=f"unit_{col}")
+                            if "File:" in choice:
+                                unit_mapping[col] = f_unit
+                
+                # Save unit decision to session state for export
+                st.session_state['unit_mapping'] = unit_mapping
+
                 # Run Button (Conditioned on mapping)
                 if not missing_cols or len(column_mapping) == len(missing_cols):
                     if st.button("Run QA/QC"):
@@ -254,9 +303,17 @@ elif app_mode == "Data Processing":
                         if "Station_ID" not in df_qc.columns:
                             df_qc.insert(0, "Station_ID", station_id)
                         
-                        logger_id = config.get("logger", "")
+                        # Add Logger Info from inputs
                         if "Logger_ID" not in df_qc.columns:
-                            df_qc.insert(1, "Logger_ID", logger_id)
+                            # User requested Logger Model and Serial. 
+                            # Usually Logger_ID implies Serial, but request said:
+                            # "logger type ... filled by row[0] 3 ... CR350x"
+                            # "logger serial ... row[0] 4"
+                            # Assuming we want both columns or just one?
+                            # "Logger_ID" currently exists. 
+                            # Let's add both.
+                            df_qc.insert(1, "Logger_Model", logger_model_input)
+                            df_qc.insert(2, "Logger_ID", logger_serial_input)
                             
 
                         
@@ -328,9 +385,23 @@ elif app_mode == "Data Processing":
                 # Use converted DF if valid, else QC result
                 df_to_download = st.session_state.get("qc_export", st.session_state["qc_result"])
                 
-                csv_data = utils.format_tidy_csv(df_to_download)
+                # Use format_tidy_csv with full metadata
+                config = stations[selected_station]
+                # Apply Unit Overrides
+                unit_mapping = st.session_state.get('unit_mapping', {})
+                if unit_mapping:
+                    import copy
+                    config = copy.deepcopy(config)
+                    for col, unit in unit_mapping.items():
+                        if col in config["thresholds"]:
+                            config["thresholds"][col]["unit"] = unit
+                
+                header_info = st.session_state.get('header_info', {})
+                proc_codes = st.session_state.get("process_codes", [])
+                
+                csv_data = utils.format_tidy_csv(df_to_download, station_config=config, header_info=header_info, process_codes=proc_codes)
                 st.download_button(
-                    label="Download Tidy CSV",
+                    label="Download Tidy CSV (TOA5 Standard)",
                     data=csv_data,
                     file_name=f"{selected_station}_tidy.csv",
                     mime="text/csv"
@@ -347,7 +418,17 @@ elif app_mode == "Data Compilation":
             try:
                 dfs = []
                 for f in uploaded_files:
-                    dfs.append(pd.read_csv(f))
+                    # Try to read TOA5 (skip rows) or regular CSV
+                    # We can try reading with default settings first.
+                    try:
+                        # Try standard TOA5 skip
+                        temp_df = pd.read_csv(f, skiprows=[0, 2, 3])
+                    except:
+                        # Fallback to normal
+                        f.seek(0)
+                        temp_df = pd.read_csv(f)
+                        
+                    dfs.append(temp_df)
                 
                 if dfs:
                     compiled_df = pd.concat(dfs, ignore_index=True)

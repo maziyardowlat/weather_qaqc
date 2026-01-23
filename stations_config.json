@@ -80,12 +80,17 @@
                 "min": 5.0,
                 "max": 25.0,
                 "rate_of_change": 9.0
+            },
+            "asdfdsaf": {
+                "unit": "Deg C",
+                "min": 3.0,
+                "max": 3.0,
+                "rate_of_change": 12.0
             }
         }
     },
     "Cheslata Lake": {
         "id": "02FW005",
-        "logger": "1379",
         "thresholds": {
             "battv": {
                 "unit": "Volts",
@@ -274,7 +279,7 @@
                 "rate_of_change": null
             },
             "stmp2": {
-                "unit": "Deg C",
+                "unit": "DegDD",
                 "min": null,
                 "max": null,
                 "rate_of_change": null
