@@ -100,6 +100,7 @@ def format_tidy_csv(df, station_config=None, header_info=None, process_codes=Non
     csv_str += to_csv_line(row3)
     
     # Append Data
-    csv_str += df.to_csv(index=False, header=False)
+    # User requested literal "NaN" for missing values
+    csv_str += df.to_csv(index=False, header=False, na_rep='NaN')
     
     return csv_str.encode('utf-8')

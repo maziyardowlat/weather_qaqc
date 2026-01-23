@@ -284,19 +284,85 @@ elif app_mode == "Data Processing":
                 # Save unit decision to session state for export
                 st.session_state['unit_mapping'] = unit_mapping
 
+                # --- DUPLICATE & GAP ANALYSIS ---
+                # We need to ensure TIMESTAMP is datetime for this check
+                # It should have been converted in parser, but let's be safe
+                ts_col = "TIMESTAMP"
+                has_conflicts = False
+                
+                if ts_col in df_raw.columns:
+                    # check for exact duplicates (drop silently/automatically?)
+                    # User said: "if all values are identical... do not prompt"
+                    n_exact = df_raw.duplicated().sum()
+                    if n_exact > 0:
+                        st.warning(f"Found {n_exact} exact duplicate rows. They will be automatically dropped.")
+                        # We can drop them now for the "Run" stage context? 
+                        # Actually we shouldn't modify df_raw in session state automatically without strict consent,
+                        # but for flow, let's filter them for the view context.
+                        # We will apply the drop inside the "Run" block to be destructive only then.
+                    
+                    # Check for Timestamp Collisions (Same TS, different content)
+                    # We exclude exact duplicates from this check
+                    df_dedup = df_raw.drop_duplicates()
+                    dupe_mask = df_dedup.duplicated(subset=[ts_col], keep=False)
+                    conflict_rows = df_dedup[dupe_mask]
+                    
+                    if not conflict_rows.empty:
+                        has_conflicts = True
+                        st.warning(f"⚠️ Found {len(conflict_rows)} rows with conflicting timestamps (Same time, different data).")
+                        
+                        # Show pairs
+                        with st.expander("Review Conflicts", expanded=True):
+                            st.write("We detected multiple rows for these timestamps.")
+                            st.dataframe(conflict_rows.sort_values(by=ts_col))
+                            
+                            st.info("Resolution Policy: The QA/QC process will automatically keep the **first** occurrence and drop the duplicates.")
+                            
+                            resolve_conflicts = st.checkbox("I acknowledge these conflicts (Proceed with 'Keep First')", value=False)
+                            
+                            if resolve_conflicts:
+                                has_conflicts = False # Override blocker
+                
                 # Run Button (Conditioned on mapping)
-                if not missing_cols or len(column_mapping) == len(missing_cols):
+                if (not missing_cols or len(column_mapping) == len(missing_cols)) and not has_conflicts:
                     if st.button("Run QA/QC"):
                         with st.spinner("Processing..."):
-                            # Apply Mapping
+                            # 1. Apply Mapping
                             if column_mapping:
-                                # Invert mapping: {Expected: File} -> {File: Expected} for rename
                                 rename_dict = {v: k for k, v in column_mapping.items()}
-                                df_raw = df_raw.rename(columns=rename_dict)
-                                st.info(f"Applied column mapping: {rename_dict}")
+                                df_proc = df_raw.rename(columns=rename_dict)
+                            else:
+                                df_proc = df_raw.copy()
                             
-                            # Apply QA/QC
-                            df_qc = qaqc.apply_qc(df_raw, config)
+                            # 2. Drop Exact Duplicates
+                            df_proc = df_proc.drop_duplicates()
+                            
+                            # 3. Handle Conflicts (Keep First as per current logic default, or error?)
+                            # User said "deletes 2nd row". So keep='first' works.
+                            df_proc = df_proc.drop_duplicates(subset=[ts_col], keep='first')
+                            
+                            # 4. Gap Filling (15 MIN)
+                            if ts_col in df_proc.columns:
+                                df_proc[ts_col] = pd.to_datetime(df_proc[ts_col])
+                                df_proc = df_proc.sort_values(ts_col)
+                                
+                                start_ts = df_proc[ts_col].iloc[0]
+                                end_ts = df_proc[ts_col].iloc[-1]
+                                
+                                # Generate full range
+                                full_range = pd.date_range(start=start_ts, end=end_ts, freq='15T')
+                                
+                                # Reindex
+                                df_proc = df_proc.set_index(ts_col).reindex(full_range)
+                                
+                                # The reindex creates an index name shift suitable for reset
+                                df_proc.index.name = ts_col
+                                df_proc = df_proc.reset_index()
+                                
+                                # Now gaps are NaN rows
+                            
+                            # 5. Apply QA/QC
+                            df_qc = qaqc.apply_qc(df_proc, config)
 
                         # Add Station ID Column
                         station_id = config.get("id", "")
@@ -376,14 +442,50 @@ elif app_mode == "Data Processing":
                      df_export = st.session_state["qc_result"].copy()
                      if 'TIMESTAMP' in df_export.columns:
                          df_export['TIMESTAMP'] = utils.convert_timezone(df_export, 'TIMESTAMP', from_tz, to_tz)
+                         
+                         # Add UTC Offset Column
+                         # Logic: If we converted to UTC, offset is 0? Or is this describing the *original* offset?
+                         # User said: "if we do not change it... -7 for every."
+                         # "End timestamp being the tidy files timestamp (PDT)... see that it should be -7 as it is compared to UTC."
+                         
+                         # If Target is UTC:
+                         if to_tz == "UTC":
+                             df_export['UTC_offset'] = 0
+                         else:
+                             # Assume PDT fixed (-7)
+                             df_export['UTC_offset'] = -7
+                             
                          st.session_state["qc_export"] = df_export
                          st.success(f"Converted timestamps from {from_tz_label} to {to_tz}")
                      else:
                          st.warning("No TIMESTAMP column found.")
                 
+                # Checking 15 Minute Intervals (Post-Process Verification)
+                # User asked for error message if rows are not 15 min apart.
+                # Since we performed Gap Filling, this should be clean, but let's verify.
+                df_check = st.session_state.get("qc_export", st.session_state["qc_result"])
+                if 'TIMESTAMP' in df_check.columns and len(df_check) > 1:
+                     # Calculate diff
+                     ts_check = pd.to_datetime(df_check['TIMESTAMP'])
+                     diffs = ts_check.diff().dropna()
+                     # We expect 15 minutes (900 seconds)
+                     # Allow small float tolerance?
+                     bad_intervals = diffs[diffs != pd.Timedelta(minutes=15)]
+                     
+                     if not bad_intervals.empty:
+                         st.warning(f"⚠️ Interval Check: Found {len(bad_intervals)} rows where the interval is not 15 minutes!")
+                         # This might happen if gap filling failed or sorting was off.
+                     else:
+                         st.success("✅ Interval Check: All records are strictly 15 minutes apart.")
+
                 # Download Button
                 # Use converted DF if valid, else QC result
                 df_to_download = st.session_state.get("qc_export", st.session_state["qc_result"])
+                
+                # Ensure UTC_offset exists if user didn't click Convert
+                if 'UTC_offset' not in df_to_download.columns:
+                     # Default to -7 (PDT)
+                     df_to_download['UTC_offset'] = -7
                 
                 # Use format_tidy_csv with full metadata
                 config = stations[selected_station]
