@@ -32,6 +32,24 @@ def isolate_columns(file_path):
         if 'tmp' in df_subset.columns:
             # Convert to numeric just in case
             df_subset['tmp'] = pd.to_numeric(df_subset['tmp'], errors='coerce')
+
+            max_val = df_subset['tmp'].max()
+            min_val = df_subset['tmp'].min()
+
+            temp_max = df_subset['tmp'].quantile(0.995)
+            temp_min = df_subset['tmp'].quantile(0.005)
+
+            # --- Step Change / Neighbor Logic ---
+            # Calculate difference with next row (i vs i+1)
+            # diff_next = current - next
+            df_subset['diff_next'] = df_subset['tmp'] - df_subset['tmp'].shift(-1)
+
+            #absolute 99.5
+            delta_max_diff_next_abs = abs(df_subset['diff_next']).quantile(0.995)
+
+            # Calculate difference with prev row (i vs i-1)
+            # diff_prev = current - prev
+            df_subset['diff_prev'] = df_subset['tmp'] - df_subset['tmp'].shift(1)
             
             # --- Flaggging Logic ---
             if 'tmp_Flag' not in df_subset.columns:
@@ -67,50 +85,13 @@ def isolate_columns(file_path):
             # Use 'NC' for these rows. 
             df_subset.loc[mask_nc, 'tmp_Flag'] = 'NC'
          
-            
-            max_val = df_subset['tmp'].max()
-            min_val = df_subset['tmp'].min()
+    
+            # for a future file, we would need to have our diff next be from the historicals, while hte current
+            # comparissons are done from the existing file. 
 
-            # --- Step Change / Neighbor Logic ---
-            # Calculate difference with next row (i vs i+1)
-            # diff_next = current - next
-            df_subset['diff_next'] = df_subset['tmp'] - df_subset['tmp'].shift(-1)
-
-            p99_5_diff_next = df_subset['diff_next'].quantile(0.995)
-            # p00_5_diff_next = df_subset['diff_next'].quantile(0.005)
-
-            #absolute 99.5
-            p99_5_diff_next_abs = abs(df_subset['diff_next']).quantile(0.995)
-
-            
-            # Calculate difference with prev row (i vs i-1)
-            # diff_prev = current - prev
-            df_subset['diff_prev'] = df_subset['tmp'] - df_subset['tmp'].shift(1)
-
-            p99_5_diff_prev = df_subset['diff_prev'].quantile(0.995)
-            p00_5_diff_prev = df_subset['diff_prev'].quantile(0.005)
-            
-            # Store neighbor values as requested
-            df_subset['val_next'] = df_subset['tmp'].shift(-1)
-            df_subset['val_prev'] = df_subset['tmp'].shift(1)
-            
-            # --- New Logic: Neighbor Differences & Percentiles ---
-            # "val_next_val_prev" = val_next - val_prev
-            df_subset['val_next_val_prev'] = df_subset['val_next'] - df_subset['val_prev']
-                    
-            # Calculate 99.5th and 0.5th percentiles of the difference column
-            # (ignoring NaNs automatically by pandas)
-            p99_5 = df_subset['val_next_val_prev'].quantile(0.995)
-            p00_5 = df_subset['val_next_val_prev'].quantile(0.005)
-
-            p99_5_tmp = df_subset['tmp'].quantile(0.995)
-            p00_5_tmp = df_subset['tmp'].quantile(0.005)
-
-            p99_5_diff_next = df_subset['diff_next'].quantile(0.995)
-            p00_5_diff_next = df_subset['diff_next'].quantile(0.005)
 
             # 3. Extreme Value Check ('E')
-            mask_extreme = (df_subset['tmp'] > p99_5_tmp)
+            mask_extreme = (df_subset['tmp'] > temp_max) | (df_subset['tmp'] < temp_min)
             
             # Calculate masks based on CURRENT state before modification
             mask_is_clean = (df_subset['tmp_Flag'] == '')
@@ -123,7 +104,8 @@ def isolate_columns(file_path):
             # 2. Append to existing flags
             df_subset.loc[mask_extreme & mask_not_clean, 'tmp_Flag'] += ', E'
             
-            # 4. Temperature Threshold Check ('T')
+            # 4. Temperature Threshold Check ('T') # make it so that in the future,
+            # it can be filled in via a config (climate value value gets passed in instead of 50)
             temperature_threshold = (df_subset['tmp'] > 50) | (df_subset['tmp'] < -50)
             
             # Calculate masks based on CURRENT state (post-E updates)
@@ -135,7 +117,7 @@ def isolate_columns(file_path):
             df_subset.loc[temperature_threshold & mask_not_clean, 'tmp_Flag'] += ', T'
             
             # 5. Spike Check ('S')
-            spike_threshold = (df_subset['diff_next'])
+            spike_threshold = (df_subset['diff_next'] > delta_max_diff_next_abs) & (df_subset['diff_prev'] > delta_max_diff_next_abs)
             
             # Calculate masks based on CURRENT state (post-E, T updates)
             mask_is_clean = (df_subset['tmp_Flag'] == '')
@@ -146,8 +128,8 @@ def isolate_columns(file_path):
             df_subset.loc[spike_threshold & mask_not_clean, 'tmp_Flag'] += ', S'
 
             # 6. Jump Check ('J')
-            # Check if absolute diff_next is greater than the p99.5 absolute diff_next
-            jump_threshold = df_subset['diff_next'].abs() > p99_5_diff_next_abs
+            # Check if absolute diff_prev (change from previous) is greater than threshold
+            jump_threshold = df_subset['diff_prev'].abs() > delta_max_diff_next_abs
             
             # Calculate masks based on CURRENT state
             mask_is_clean = (df_subset['tmp_Flag'] == '')
@@ -157,40 +139,16 @@ def isolate_columns(file_path):
             df_subset.loc[jump_threshold & mask_is_clean, 'tmp_Flag'] = 'J'
             df_subset.loc[jump_threshold & mask_not_clean, 'tmp_Flag'] += ', J'
 
-            
+        
 
+            df_subset['delta_max_diff_next_abs'] = delta_max_diff_next_abs
 
-            
-
-            
-            print(f"99.5th Percentile of diff: {p99_5}")
-            print(f"0.5th Percentile of diff: {p00_5}")
-
-            df_subset['p99_5_diff_next'] = p99_5_diff_next
-            df_subset['p00_5_diff_next'] = p00_5_diff_next
-
-            df_subset['p99_5_diff_next_abs'] = p99_5_diff_next_abs
-
-            df_subset['p99_5_diff_prev'] = p99_5_diff_prev
-            df_subset['p00_5_diff_prev'] = p00_5_diff_prev
-            
-            # Store these scalar values in new repeating columns
-            df_subset['99.5_val_next_prev'] = p99_5
-            df_subset['0.5_val_next_prev'] = p00_5
-
-            df_subset['99.5_diff_next'] = p99_5_diff_next
-            df_subset['0.5_diff_next'] = p00_5_diff_next
-
-            df_subset['99.5_tmp'] = p99_5_tmp
-            df_subset['0.5_tmp'] = p00_5_tmp
+            df_subset['99.5_tmp'] = temp_max
+            df_subset['0.5_tmp'] = temp_min
 
             # Also keep simple max/min columns as originally planned
             df_subset['tmp_Max'] = max_val
-            df_subset['tmp_Min'] = min_val
-
-            #add difference between val next and val_prv
-            df_subset['val_next_val_prev'] = df_subset['val_next'] - df_subset['val_prev']
-             
+            df_subset['tmp_Min'] = min_val             
         print("\nIsolated DataFrame Head:")
         print(df_subset.head())
         
