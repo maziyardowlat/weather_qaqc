@@ -1,4 +1,5 @@
 import pandas as pd
+import matplotlib.pyplot as plt
 import os
 
 def isolate_columns(file_path):
@@ -36,6 +37,9 @@ def isolate_columns(file_path):
             if 'tmp_Flag' not in df_subset.columns:
                  df_subset['tmp_Flag'] = ''
             
+            # Ensure tmp_Flag is string and no NaNs (critical for appending flags)
+            df_subset['tmp_Flag'] = df_subset['tmp_Flag'].fillna('').astype(str)
+            
             # 1. Missing/NaN Check ('M')
             # If tmp is NaN (non-numeric or missing), set flag to 'M'
             df_subset.loc[df_subset['tmp'].isna(), 'tmp_Flag'] = 'M'
@@ -71,10 +75,20 @@ def isolate_columns(file_path):
             # Calculate difference with next row (i vs i+1)
             # diff_next = current - next
             df_subset['diff_next'] = df_subset['tmp'] - df_subset['tmp'].shift(-1)
+
+            p99_5_diff_next = df_subset['diff_next'].quantile(0.995)
+            # p00_5_diff_next = df_subset['diff_next'].quantile(0.005)
+
+            #absolute 99.5
+            p99_5_diff_next_abs = abs(df_subset['diff_next']).quantile(0.995)
+
             
             # Calculate difference with prev row (i vs i-1)
             # diff_prev = current - prev
             df_subset['diff_prev'] = df_subset['tmp'] - df_subset['tmp'].shift(1)
+
+            p99_5_diff_prev = df_subset['diff_prev'].quantile(0.995)
+            p00_5_diff_prev = df_subset['diff_prev'].quantile(0.005)
             
             # Store neighbor values as requested
             df_subset['val_next'] = df_subset['tmp'].shift(-1)
@@ -96,17 +110,73 @@ def isolate_columns(file_path):
             p00_5_diff_next = df_subset['diff_next'].quantile(0.005)
 
             # 3. Extreme Value Check ('E')
-            # Flag if tmp is outside the 0.5th - 99.5th percentile range
-            # We use the previously calculated global percentiles
-            mask_extreme = (df_subset['tmp'] > p99_5_tmp) | (df_subset['tmp'] < p00_5_tmp)
-            df_subset.loc[mask_extreme, 'tmp_Flag'] = 'E'
+            mask_extreme = (df_subset['tmp'] > p99_5_tmp)
+            
+            # Calculate masks based on CURRENT state before modification
+            mask_is_clean = (df_subset['tmp_Flag'] == '')
+            mask_not_clean = (df_subset['tmp_Flag'] != '')
+            
+            # Apply 'E'
+            # 1. New flags
+            df_subset.loc[mask_extreme & mask_is_clean, 'tmp_Flag'] = 'E'
+            
+            # 2. Append to existing flags
+            df_subset.loc[mask_extreme & mask_not_clean, 'tmp_Flag'] += ', E'
+            
+            # 4. Temperature Threshold Check ('T')
+            temperature_threshold = (df_subset['tmp'] > 50) | (df_subset['tmp'] < -50)
+            
+            # Calculate masks based on CURRENT state (post-E updates)
+            mask_is_clean = (df_subset['tmp_Flag'] == '')
+            mask_not_clean = (df_subset['tmp_Flag'] != '')
+            
+            # Apply 'T'
+            df_subset.loc[temperature_threshold & mask_is_clean, 'tmp_Flag'] = 'T'
+            df_subset.loc[temperature_threshold & mask_not_clean, 'tmp_Flag'] += ', T'
+            
+            # 5. Spike Check ('S')
+            spike_threshold = (df_subset['diff_next'])
+            
+            # Calculate masks based on CURRENT state (post-E, T updates)
+            mask_is_clean = (df_subset['tmp_Flag'] == '')
+            mask_not_clean = (df_subset['tmp_Flag'] != '')
+            
+            # Apply 'S'
+            df_subset.loc[spike_threshold & mask_is_clean, 'tmp_Flag'] = 'S'
+            df_subset.loc[spike_threshold & mask_not_clean, 'tmp_Flag'] += ', S'
+
+            # 6. Jump Check ('J')
+            # Check if absolute diff_next is greater than the p99.5 absolute diff_next
+            jump_threshold = df_subset['diff_next'].abs() > p99_5_diff_next_abs
+            
+            # Calculate masks based on CURRENT state
+            mask_is_clean = (df_subset['tmp_Flag'] == '')
+            mask_not_clean = (df_subset['tmp_Flag'] != '')
+            
+            # Apply 'J'
+            df_subset.loc[jump_threshold & mask_is_clean, 'tmp_Flag'] = 'J'
+            df_subset.loc[jump_threshold & mask_not_clean, 'tmp_Flag'] += ', J'
+
+            
+
+
+            
+
             
             print(f"99.5th Percentile of diff: {p99_5}")
             print(f"0.5th Percentile of diff: {p00_5}")
+
+            df_subset['p99_5_diff_next'] = p99_5_diff_next
+            df_subset['p00_5_diff_next'] = p00_5_diff_next
+
+            df_subset['p99_5_diff_next_abs'] = p99_5_diff_next_abs
+
+            df_subset['p99_5_diff_prev'] = p99_5_diff_prev
+            df_subset['p00_5_diff_prev'] = p00_5_diff_prev
             
             # Store these scalar values in new repeating columns
-            df_subset['99.5'] = p99_5
-            df_subset['0.5'] = p00_5
+            df_subset['99.5_val_next_prev'] = p99_5
+            df_subset['0.5_val_next_prev'] = p00_5
 
             df_subset['99.5_diff_next'] = p99_5_diff_next
             df_subset['0.5_diff_next'] = p00_5_diff_next
@@ -118,15 +188,9 @@ def isolate_columns(file_path):
             df_subset['tmp_Max'] = max_val
             df_subset['tmp_Min'] = min_val
 
-
             #add difference between val next and val_prv
             df_subset['val_next_val_prev'] = df_subset['val_next'] - df_subset['val_prev']
-            
-            print(f"Global Max tmp: {max_val}")
-            print(f"Global Min tmp: {min_val}")
-            
-
-            
+             
         print("\nIsolated DataFrame Head:")
         print(df_subset.head())
         
@@ -135,6 +199,82 @@ def isolate_columns(file_path):
     except Exception as e:
         print(f"An error occurred: {e}")
         return None
+
+def plot_results(df):
+    """
+    Plots 'tmp' values over 'TIMESTAMP' with points colored by 'tmp_Flag'.
+    """
+    try:
+        # Ensure TIMESTAMP is datetime
+        if not pd.api.types.is_datetime64_any_dtype(df['TIMESTAMP']):
+            # Attempt to infer format or use specific format if known to speed up
+            df['TIMESTAMP'] = pd.to_datetime(df['TIMESTAMP'], errors='coerce')
+        
+        # Sort by timestamp just in case
+        df = df.sort_values('TIMESTAMP')
+        
+        plt.figure(figsize=(15, 8))
+        
+        # Plot lines first (neutral color) to show continuity
+        # Drop NaNs from plotting line to avoid breaks if desired, or keep breaks
+        # Convert to numpy to avoid multi-dimensional indexing issues
+        x_vals = df['TIMESTAMP'].to_numpy()
+        y_vals = df['tmp'].to_numpy()
+        
+        plt.plot(x_vals, y_vals, color='lightgray', linewidth=0.5, zorder=1)
+        
+        # Scatter for flags
+        unique_flags = df['tmp_Flag'].unique()
+        # Sort so '' (clean) is handled consistently
+        unique_flags = sorted([str(f) for f in unique_flags])
+        
+        # Color map
+        cm = plt.cm.get_cmap('rainbow')
+        
+        for i, flag in enumerate(unique_flags):
+            # Select data
+            mask = df['tmp_Flag'] == flag
+            if flag == '':
+               label = "Clean"
+               color = 'blue' 
+               alpha = 0.3
+               s = 10
+            elif flag == 'M':
+                # Missing values usually have NaN tmp, so they won't plot.
+                # If user wants to see them, we'd need to impute or plot rug.
+                # For now, skip or plot if tmp exists (which it shouldn't for M)
+                continue 
+            else:
+               label = flag
+               # Pick color from rainbow
+               # Avoid 0/1 extremes if they are hard to see?
+               ratio = i / max(len(unique_flags)-1, 1)
+               color = cm(ratio)
+               alpha = 1.0
+               s = 20
+            
+            # Scatter only valid tmp values
+            valid_mask = mask & df['tmp'].notna()
+            if valid_mask.any():
+                # Use .to_numpy() explicitly
+                subset_df = df[valid_mask]
+                plt.scatter(subset_df['TIMESTAMP'].to_numpy(), subset_df['tmp'].to_numpy(), 
+                            label=label, color=color, alpha=alpha, s=s, zorder=2)
+
+        plt.title("Temperature Analysis: Tmp vs Timestamp (Colored by Flags)")
+        plt.xlabel("Timestamp")
+        plt.ylabel("Temperature")
+        plt.legend(title="Flags")
+        plt.grid(True, alpha=0.3)
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        
+        output_img = "quick_fix_plot.png"
+        plt.savefig(output_img)
+        print(f"✅ Plot saved to: {os.path.abspath(output_img)}")
+        
+    except Exception as e:
+        print(f"Plotting failed: {e}")
 
 if __name__ == "__main__":
     # Path to the file mentioned by the user
@@ -147,3 +287,5 @@ if __name__ == "__main__":
         df.to_csv(output_file, index=False, na_rep='NaN')
         print(f"\n✅ Success! Isolated data saved to: {os.path.abspath(output_file)}")
         print("Ready for flag setting logic...")
+        
+        plot_results(df)
