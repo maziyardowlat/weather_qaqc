@@ -68,8 +68,8 @@ def read_data(filepath):
     # Read Data
     # skiprows=[0, 2, 3] relative to file start
     # Row 1 becomes the header
-    # Handle "NAN" strings as NaN
-    df = pd.read_csv(filepath, skiprows=[0, 2, 3], na_values=['NAN', '"NAN"'], low_memory=False)
+    # Handle "NAN" strings, empty strings, and various placeholders as NaN
+    df = pd.read_csv(filepath, skiprows=[0, 2, 3], na_values=['NAN', '"NAN"', ''], keep_default_na=True, skipinitialspace=True, low_memory=False)
     
     return df, units_map
 
@@ -182,7 +182,7 @@ def main():
         
     # Append data
     # mode='a' (append)
-    df_final.to_csv(output_file, mode='a', header=False, index=False)
+    df_final.to_csv(output_file, mode='a', header=False, index=False, na_rep='NaN')
     
     print("Done!")
 
