@@ -3,9 +3,12 @@ import numpy as np
 
 def process_air_temp(input_file, output_file):
     print(f"Reading {input_file}...")
-    
-    
     df = pd.read_csv(input_file, header=0, skiprows=[1], na_values=['NAN', '"NAN"'], low_memory=False)
+
+    #input in our max/min/rate of change values
+    rate_of_change = 5
+    max_temp = 50
+    min_temp = -50
     
     # Ensure TIMESTAMP is datetime
     df['TIMESTAMP'] = pd.to_datetime(df['TIMESTAMP'], format='mixed')
@@ -29,13 +32,9 @@ def process_air_temp(input_file, output_file):
     df['diff_prev'] = df[target_col] - df[target_col].shift(1)
     # diff_next: Value - NextValue
     df['diff_next'] = df[target_col] - df[target_col].shift(-1)
-
-    delta_max_diff_next_abs = abs(df['diff_next']).quantile(0.995)
     
     # Initialize Flag Column
     df['Flag'] = ''
-    
-    # --- QA/QC Logic ---
     
     # 1. Missing (M)
     mask_m = df[target_col].isna()
@@ -43,7 +42,7 @@ def process_air_temp(input_file, output_file):
     
     # 2. Temperature Range (T): < -50 or > 50
     # Only check non-missing
-    mask_t = (df[target_col] < -50) | (df[target_col] > 50)
+    mask_t = (df[target_col] < min_temp) | (df[target_col] > max_temp)
     
     # Helper to append flags
     def append_flag(mask, flag_char):
@@ -77,7 +76,7 @@ def process_air_temp(input_file, output_file):
     # Abs diff > 5 from BOTH prev and next, AND same sign (consistent spike/dip)
     # (val - prev) * (val - next) > 0  implies same sign.
 
-    mask_s = (df['diff_next'] > delta_max_diff_next_abs) & (df['diff_prev'] > delta_max_diff_next_abs)
+    mask_s = (df['diff_next'] > rate_of_change) & (df['diff_prev'] > rate_of_change)
     append_flag(mask_s, 'S')
     
     # 4. Jump Check (J)
@@ -85,7 +84,7 @@ def process_air_temp(input_file, output_file):
     # Note: S condition implies J condition (large diff from prev).
     # So S implies J usually.
 
-    mask_j = df['diff_prev'].abs() > delta_max_diff_next_abs
+    mask_j = df['diff_prev'].abs() > rate_of_change
     append_flag(mask_j, 'J')
     
     # 5. Pass (P)
@@ -94,9 +93,9 @@ def process_air_temp(input_file, output_file):
     df.loc[mask_p, 'Flag'] = 'P'
     
     # Add Limit Columns
-    df['Min_Limit'] = -50
-    df['Max_Limit'] = 50
-    df['Rate_Limit'] = 5
+    df['Min_Limit'] = min_temp
+    df['Max_Limit'] = max_temp
+    df['Rate_Limit'] = rate_of_change
 
     
     # Select Columns

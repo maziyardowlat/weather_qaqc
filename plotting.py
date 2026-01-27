@@ -14,7 +14,8 @@ def plot_air_temp():
         'M': 'red',
         'T': 'blue',
         'S': 'orange',
-        'J': 'purple'
+        'J': 'purple',
+        'NC': 'cyan'
     }
     
     plt.figure(figsize=(12, 6))
@@ -22,7 +23,7 @@ def plot_air_temp():
     # For 'M' (Missing), replace NaN with -60 so they appear at the bottom
     mask_m = df['Flag'].astype(str).str.contains('M', na=False)
     # We use .copy() to avoid SettingWithCopy warning if applicable, though read_csv returns new df
-    df.loc[mask_m, 'AirTC_C_Avg'] = df.loc[mask_m, 'AirTC_C_Avg'].fillna(-60)
+    df.loc[mask_m, 'AirT_C_Avg'] = df.loc[mask_m, 'AirT_C_Avg'].fillna(-60)
     
     plt.grid(True, alpha=0.3)
     
@@ -35,7 +36,7 @@ def plot_air_temp():
         # Plot these pointsno
         plt.scatter(
             subset['TIMESTAMP'], 
-            subset['AirTC_C_Avg'], 
+            subset['AirT_C_Avg'], 
             color=color_name, 
             label=flag_name,
             s=15 # Size of dots
