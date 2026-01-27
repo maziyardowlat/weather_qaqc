@@ -4,14 +4,7 @@ import numpy as np
 def process_air_temp(input_file, output_file):
     print(f"Reading {input_file}...")
     
-    # Read data, skipping Units row (row 2, index 1 if 0-based, or row 3 if 1-based)
-    # TOA5: 0=Info, 1=Header, 2=Units, 3=Rate. Data starts at 4.
-    # We want headers from row 1.
-    # We want to skip row 2 and 3.
-    # Concatenated file has:
-    # Row 0: Header
-    # Row 1: Units
-    # Row 2+: Data
+    
     df = pd.read_csv(input_file, header=0, skiprows=[1], na_values=['NAN', '"NAN"'], low_memory=False)
     
     # Ensure TIMESTAMP is datetime
@@ -24,22 +17,20 @@ def process_air_temp(input_file, output_file):
     
     # Rename Column
     target_col = 'AirT_C_Avg'
-    output_col = 'AirTC_C_Avg'
     
     if target_col not in df.columns:
         print(f"Error: {target_col} not found in columns: {df.columns}")
-        return
-        
-    df.rename(columns={target_col: output_col}, inplace=True)
-    
+        return    
     # Sort
     df.sort_values('TIMESTAMP', inplace=True)
     
     # Calculate Differences for Checks
     # diff_prev: Value - PrevValue
-    df['diff_prev'] = df[output_col].diff()
+    df['diff_prev'] = df[target_col] - df[target_col].shift(1)
     # diff_next: Value - NextValue
-    df['diff_next'] = df[output_col] - df[output_col].shift(-1)
+    df['diff_next'] = df[target_col] - df[target_col].shift(-1)
+
+    delta_max_diff_next_abs = abs(df['diff_next']).quantile(0.995)
     
     # Initialize Flag Column
     df['Flag'] = ''
@@ -47,12 +38,12 @@ def process_air_temp(input_file, output_file):
     # --- QA/QC Logic ---
     
     # 1. Missing (M)
-    mask_m = df[output_col].isna()
+    mask_m = df[target_col].isna()
     df.loc[mask_m, 'Flag'] = 'M'
     
     # 2. Temperature Range (T): < -50 or > 50
     # Only check non-missing
-    mask_t = (df[output_col] < -50) | (df[output_col] > 50)
+    mask_t = (df[target_col] < -50) | (df[target_col] > 50)
     
     # Helper to append flags
     def append_flag(mask, flag_char):
@@ -66,34 +57,50 @@ def process_air_temp(input_file, output_file):
 
     append_flag(mask_t, 'T')
 
+    # 3. No Change Check (NC)
+    # Flag if 4 or more consecutive rows have the EXACT same numeric value
+    # Filter out NaNs so we don't flag missing sequences as 'No Change'
+    
+    # Create group ID: increments every time value changes
+    grp = (df[target_col] != df[target_col].shift()).cumsum()
+    
+    # Count size of each group
+    grp_counts = df.groupby(grp)[target_col].transform('count')
+    
+    # Mask: count >= 4 AND value is not NaN
+    mask_nc = (grp_counts >= 4) & (df[target_col].notna())
+    
+    append_flag(mask_nc, 'NC')
+
+
     # 3. Spike Check (S)
     # Abs diff > 5 from BOTH prev and next, AND same sign (consistent spike/dip)
     # (val - prev) * (val - next) > 0  implies same sign.
-    mask_s = (df['diff_prev'].abs() > 5) & \
-             (df['diff_next'].abs() > 5) & \
-             ((df['diff_prev'] * df['diff_next']) > 0)
-             
+
+    mask_s = (df['diff_next'] > delta_max_diff_next_abs) & (df['diff_prev'] > delta_max_diff_next_abs)
     append_flag(mask_s, 'S')
     
     # 4. Jump Check (J)
     # Abs diff from Prev > 5
     # Note: S condition implies J condition (large diff from prev).
     # So S implies J usually.
-    mask_j = df['diff_prev'].abs() > 5
+
+    mask_j = df['diff_prev'].abs() > delta_max_diff_next_abs
     append_flag(mask_j, 'J')
     
     # 5. Pass (P)
     # If Flag is still empty, valid value -> P
-    mask_p = (df['Flag'] == '') & (df[output_col].notna())
+    mask_p = (df['Flag'] == '') & (df[target_col].notna())
     df.loc[mask_p, 'Flag'] = 'P'
     
     # Add Limit Columns
     df['Min_Limit'] = -50
     df['Max_Limit'] = 50
     df['Rate_Limit'] = 5
+
     
     # Select Columns
-    final_cols = ['TIMESTAMP', output_col, 'Flag', 'Min_Limit', 'Max_Limit', 'Rate_Limit']
+    final_cols = ['TIMESTAMP', target_col, 'Flag', 'Min_Limit', 'Max_Limit', 'Rate_Limit']
     df_out = df[final_cols]
     
     print(f"Saving {len(df_out)} rows to {output_file}...")
