@@ -164,17 +164,43 @@ def main():
             # Look up in 2024 units
             u = units_2024.get(col)
             if u is None:
-                # Try 2023 map if it was a column only in 2023 (unlikely due to map)
-                # Or just empty string
                 u = ""
             output_units.append(u)
+            
+            # --- NEW: Add Flag Column for every data column ---
+            # If the column is a data column (not TIMESTAMP/RECORD/Index), add a Flag column
+            flag_col_name = f"{col}_Flag"
+            
+            # Create the flag data
+            # Initialize with empty string
+            df_final[flag_col_name] = ""
+            
+            # Set 'M' where data is NaN
+            # Note: We need to handle object types or pure numerics cautiously
+            mask_nan = df_final[col].isna()
+            df_final.loc[mask_nan, flag_col_name] = "M"
+            
+            # Add unit for flag (empty)
+            output_units.append("") # Unit for the flag column
+            
+    # Reorder columns: Data, Data_Flag, Data2, Data2_Flag...
+    # We built output_units in the desired order (Col, Flag, Col, Flag)
+    # So we just need to reconstruct the column list for the dataframe
+    ordered_cols = []
+    for col in final_cols_with_ts:
+        ordered_cols.append(col)
+        if col not in ['TIMESTAMP', 'RECORD']:
+            ordered_cols.append(f"{col}_Flag")
+            
+    df_final = df_final[ordered_cols]
             
     # Write to CSV
     print(f"Saving to {output_file}...")
     
     with open(output_file, 'w') as f:
         # 1. Header Row
-        f.write(",".join(final_cols_with_ts) + "\n")
+        # Use df_final.columns to ensure we match the actual data columns
+        f.write(",".join(df_final.columns) + "\n")
         # 2. Units Row
         # Make sure to handle NaNs or non-strings in units
         clean_units = [str(x) if pd.notna(x) else "" for x in output_units]
