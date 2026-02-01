@@ -52,6 +52,35 @@ def load_data(filepath):
     
     return df, headers, units
 
+def apply_uniquecases(df):
+    # Check for 'RECORD' or 'Record' column
+    found_col = None
+    if "RECORD" in df.columns:
+        found_col = "RECORD"
+    elif "Record" in df.columns:
+        found_col = "Record"
+
+    if found_col:
+        col = found_col
+        # Check for 0 values. Coerce to numeric ensures we handle strings "0" correctly if needed.
+        vals = pd.to_numeric(df[col], errors='coerce')
+        mask_zero = (vals == 0)
+
+        if mask_zero.any():
+            flag_col = f"{col}_Flag"
+            if flag_col not in df.columns:
+                df[flag_col] = ""
+
+            print(f"  - {col}: Flagging {mask_zero.sum()} records with value 0 as 'LR'")
+
+            current_flags = df[flag_col].fillna("").astype(str)
+            targets = current_flags.loc[mask_zero]
+            # Add C flag, appending if existing flags present
+            new_flags = np.where(targets == "", "LR", targets + ", LR")
+            df.loc[mask_zero, flag_col] = new_flags
+
+    return df
+
 def apply_thresholds(df):
     print("Applying QC Thresholds...")
     
@@ -143,6 +172,7 @@ def main():
     
     # 2. Apply Thresholds
     df = apply_thresholds(df)
+    df = apply_uniquecases(df)
     
     # 3. Apply Inheritance
     df = apply_inheritance(df)

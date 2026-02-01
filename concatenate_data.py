@@ -268,7 +268,7 @@ def main():
         row_units.append(u)
         
         # Flag Column
-        if col not in ['TIMESTAMP', 'RECORD'] + meta_cols:
+        if col not in ['TIMESTAMP'] + meta_cols:
             flag_col = f"{col}_Flag"
             df_final[flag_col] = ""
             cols_to_write.append(flag_col)
