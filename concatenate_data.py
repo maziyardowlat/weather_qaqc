@@ -1,11 +1,27 @@
 import pandas as pd
 import os
+import csv
+import warnings
+
+# Suppress ffill/bfill warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
 
 # File paths
 file_2023 = 'data/02FW005_raw_CR350_1379_20231102.csv'
 file_2024 = 'data/02FW005_raw_CR350_1379_20240524.csv'
 file_2025 = 'data/02FW005_raw_CR350_1379_20250521.csv'
-output_file = 'data/concatenated_all_years.csv'
+output_file = 'data/concatenated_one_year.csv'
+duplicate_report_file = 'data/duplicates_report.csv'
+end_date = '2024-07-04 14:00:00'
+
+STATION_ID = "02FW005"
+
+# Config: Year -> (Data ID number, raw_file_path)
+year_config = {
+    2023: {'id_num': 222, 'path': file_2023},
+    2024: {'id_num': 39,  'path': file_2024},
+    2025: {'id_num': 244, 'path': file_2025}
+}
 
 # Mapping from 2023 to 2024/2025
 column_mapping = {
@@ -42,174 +58,240 @@ column_mapping = {
     'stmp2': 'gtmp_Avg'
 }
 
-def read_data(filepath):
+def parse_toa5_header(filepath):
     """
-    Reads data skipping proper TOA5 rows:
-    Row 0: Info (Skip)
-    Row 1: Header (Use)
-    Row 2: Units (Use for metadata, skip for reading)
-    Row 3: Rate (Skip)
+    Parses the first line of a TOA5 file to extract:
+    Model, Serial, OS, ProgramName.
+    Returns a dict with:
+      logger_id: "{Model}-{Serial}"
+      logger_script: "{Model}-{Serial}-{StationID}-{ProgramName}" (approx)
+      logger_software: "{Model}-{Serial}-{OS}"
     """
-    print(f"Reading {filepath}...")
+    meta = {
+        'logger_id': '-9999',
+        'logger_script': '-9999',
+        'logger_software': '-9999'
+    }
     
-    # Read Units row using pandas to handle CSV parsing correctly
-    # header=None means row 0 is first row. Row 2 is units.
-    units_df = pd.read_csv(filepath, header=None, skiprows=2, nrows=1)
-    # The columns of units_df will be 0,1,2..., we just want the values
-    units_list = units_df.iloc[0].tolist()
+    try:
+        if not os.path.exists(filepath):
+            print(f"File not found: {filepath}")
+            return meta
+
+        with open(filepath, 'r') as f:
+            line = f.readline().strip()
+            # Split by comma, strip quotes
+            parts = [p.strip().strip('"') for p in line.split(',')]
+            
+            # Expecting 8 parts for standard TOA5
+            # 0: Format (TOA5)
+            # 1: StationName (Logger)
+            # 2: Model (CR350)
+            # 3: Serial (1379)
+            # 4: OS (CR350.Std.01.00)
+            # 5: Program (CPU:...)
+            # 6: Sig
+            # 7: Table
+            
+            if len(parts) >= 6:
+                model = parts[2]
+                serial = parts[3]
+                os_ver = parts[4]
+                prog_name = parts[5]
+                
+                # Construct IDs
+                meta['logger_id'] = f"{model}-{serial}"
+                meta['logger_software'] = f"{model}-{serial}-{os_ver}"
+                # Using Program Name as version for now as requested format implies station/version logic
+                # Format requested: model-serial-station-version
+                # We have STATION_ID global. 
+                # Program name example: CPU:CheslattaLake_CR350_20230629.CRB
+                # Just use the full prog name as 'version' component
+                meta['logger_script'] = f"{model}-{serial}-{STATION_ID}-{prog_name}"
+                
+    except Exception as e:
+        print(f"Warning: Could not parse header for {filepath}: {e}")
+        
+    return meta
+
+def read_data(year, config_entry):
+    filepath = config_entry['path']
+    id_num = config_entry['id_num']
     
-    # Read Header row to match units
-    header_df = pd.read_csv(filepath, header=None, skiprows=1, nrows=1)
-    header_list = header_df.iloc[0].tolist()
+    print(f"Reading {filepath} (Year {year})...")
     
-    # Create Name -> Unit map
+    if not os.path.exists(filepath):
+        print(f"Skipping {year}: File not found {filepath}")
+        return pd.DataFrame(), {}, {}
+
+    # 1. Parse Metadata
+    meta = parse_toa5_header(filepath)
+    
+    # 2. Read Units (Row 2, index 2 if 0-based lines)
+    try:
+        units_df = pd.read_csv(filepath, header=None, skiprows=2, nrows=1)
+        units_list = units_df.iloc[0].mask(pd.isna, "").tolist()
+    except Exception as e:
+        print(f"Error reading units: {e}")
+        units_list = []
+
+    # 3. Read Header (Row 1, index 1)
+    try:
+        header_df = pd.read_csv(filepath, header=None, skiprows=1, nrows=1)
+        header_list = header_df.iloc[0].tolist()
+    except Exception as e:
+        print(f"Error reading header: {e}")
+        return pd.DataFrame(), {}, meta
+    
+    if len(units_list) < len(header_list):
+        units_list += [""] * (len(header_list) - len(units_list))
+    
     units_map = dict(zip(header_list, units_list))
     
-    # Read Data
-    # skiprows=[0, 2, 3] relative to file start
-    # Row 1 becomes the header
-    # Handle "NAN" strings, empty strings, and various placeholders as NaN
-    df = pd.read_csv(filepath, skiprows=[0, 2, 3], na_values=['NAN', '"NAN"', ''], keep_default_na=True, skipinitialspace=True, low_memory=False)
+    # 4. Read Data
+    # Skip TOA5 header (0), Units (2), Type (3). Keep Header (1).
+    df = pd.read_csv(filepath, skiprows=[0, 2, 3], 
+                     na_values=['NAN', '"NAN"', '', '-7999', '7999'], 
+                     keep_default_na=True, skipinitialspace=True, low_memory=False)
     
-    return df, units_map
+    # Robust Filtering with Datetime
+    if 'TIMESTAMP' in df.columns:
+        df['TIMESTAMP'] = pd.to_datetime(df['TIMESTAMP'])
+        df = df[df['TIMESTAMP'] <= pd.to_datetime(end_date)]
+    
+    # 5. Add Metadata Columns
+    # Data ID: Just the number (string) as requested
+    df['Data_ID'] = str(id_num)
+    df['Station_ID'] = STATION_ID
+    df['Logger_ID'] = meta['logger_id']
+    df['Logger_Script'] = meta['logger_script']
+    df['Logger_Software'] = meta['logger_software']
+    
+    return df, units_map, meta
 
 def main():
-    # 1. Load Data
-    df_2023, units_2023 = read_data(file_2023)
-    df_2024, units_2024 = read_data(file_2024)
-    df_2025, units_2025 = read_data(file_2025)
+    # Store all dataframes and metadata
+    dfs = []
+    all_units = {} # catch-all units map
+    latest_meta = {} 
     
-    print(f"Loaded 2023: {df_2023.shape}")
-    print(f"Loaded 2024: {df_2024.shape}")
-    print(f"Loaded 2025: {df_2025.shape}")
-
-    # 2. Normalize 2023
-    print("Mapping 2023 columns...")
-    df_2023 = df_2023.rename(columns=column_mapping)
-    
-    # Verify all mapped columns exist in new schema
-    # We can check against df_2024 columns
-    target_cols = set(df_2024.columns)
-    current_cols = set(df_2023.columns)
-    
-    # For concatenation, pandas aligns by name.
-    # Check for any 2023 columns that didn't map (optional, but good for debug)
-    unmapped = current_cols - target_cols
-    if unmapped:
-        print(f"Warning: Columns in 2023 not in 2024 schema: {unmapped}")
+    # 1. Process each file
+    for year in sorted(year_config.keys()):
+        cfg = year_config[year]
+        df, units, meta = read_data(year, cfg)
         
-    # 3. Concatenate
+        if df.empty:
+            continue
+
+        # Apply Mapping if 2023
+        if year == 2023:
+            df = df.rename(columns=column_mapping)
+            # Update units map keys
+            new_units = {}
+            for k, v in units.items():
+                new_key = column_mapping.get(k, k)
+                new_units[new_key] = v
+            units = new_units
+            
+        dfs.append(df)
+        all_units.update(units)
+        # Always update latest meta as we process in chronological order
+        latest_meta = meta 
+
+    if not dfs:
+        print("No data loaded!")
+        return
+
+    # 2. Concatenate
     print("Concatenating datasets...")
-    # ignore_index=True because we will build a new time index
-    df_all = pd.concat([df_2023, df_2024, df_2025], ignore_index=True)
+    df_all = pd.concat(dfs, ignore_index=True)
     print(f"Total records: {len(df_all)}")
     
-    # 4. Process Time
-    print("Processing timestamps...")
+    # 3. Process Time
     if 'TIMESTAMP' not in df_all.columns:
         raise ValueError("TIMESTAMP column missing!")
-        
-    df_all['TIMESTAMP'] = pd.to_datetime(df_all['TIMESTAMP'], format='mixed')
+    
+    # Already converted in read_data, but good to ensure
+    df_all['TIMESTAMP'] = pd.to_datetime(df_all['TIMESTAMP'])
     df_all = df_all.sort_values('TIMESTAMP')
     
-    # Deduplicate (Keep first)
-    before_dedup = len(df_all)
-    
-    # DEBUG: Inspect duplicates
-    dups = df_all[df_all.duplicated(subset=['TIMESTAMP'], keep=False)]
-    if not dups.empty:
-        print(f"\nWARNING: Found {len(dups)} duplicate records (showing all occurrences).")
-        print("Sample of duplicates (first 10 rows):")
-        # Print just TIMESTAMP and valid columns to keep output clean, or just head
-        print(dups.sort_values('TIMESTAMP').head(10))
-        
-        dup_file = "data/duplicates_report.csv"
-        dups.sort_values('TIMESTAMP').to_csv(dup_file)
-        print(f"Full duplicate report saved to {dup_file}\n")
-
+    # Deduplicate
     df_all = df_all.drop_duplicates(subset=['TIMESTAMP'], keep='first')
-    after_dedup = len(df_all)
-    if before_dedup != after_dedup:
-        print(f"Dropped {before_dedup - after_dedup} duplicate timestamps.")
-        
+    
     df_all = df_all.set_index('TIMESTAMP')
     
-    # 5. Resample
+    # 4. Resample (Gap Filling)
     print("Resampling to 15T...")
-    # asfreq() puts Nan where data is missing
+    # Resample to 15T, insert NaNs
     df_resampled = df_all.resample('15T').asfreq()
     
-    print(f"Final shape after resampling: {df_resampled.shape}")
+    # 5. Construct Flags
+    # Identify data columns (exclude metadata columns we just added)
+    meta_cols = ['Data_ID', 'Station_ID', 'Logger_ID', 'Logger_Script', 'Logger_Software']
+    data_cols = [c for c in df_resampled.columns if c not in meta_cols and c != 'RECORD']
     
-    # 6. Prepare Output
-    # We need to construct the CSV with the Units row.
-    # The target schema is 2024/2025.
-    # We should use units_2024 (or 2025) for the columns.
-    
-    # Identify the column order of the final dataframe
-    final_cols = df_resampled.columns.tolist()
-    
-    # Construct Units row
-    output_units = []
-    # Index is TIMESTAMP usually, but reset_index will bring it back as column
+    # Create final DataFrame with ordering
     df_final = df_resampled.reset_index()
-    final_cols_with_ts = df_final.columns.tolist()
     
-    for col in final_cols_with_ts:
-        if col == 'TIMESTAMP':
-            output_units.append('TS') # Standard TOA5 unit for Timestamp
-        elif col == 'RECORD':
-            output_units.append('RN')
-        else:
-            # Look up in 2024 units
-            u = units_2024.get(col)
-            if u is None:
-                u = ""
-            output_units.append(u)
-            
-            # --- NEW: Add Flag Column for every data column ---
-            # If the column is a data column (not TIMESTAMP/RECORD/Index), add a Flag column
-            flag_col_name = f"{col}_Flag"
-            
-            # Create the flag data
-            # Initialize with empty string
-            df_final[flag_col_name] = ""
-            
-            # Set 'M' where data is NaN
-            # Note: We need to handle object types or pure numerics cautiously
-            mask_nan = df_final[col].isna()
-            df_final.loc[mask_nan, flag_col_name] = "M"
-            
-            # Add unit for flag (empty)
-            output_units.append("") # Unit for the flag column
-            
-    # Reorder columns: Data, Data_Flag, Data2, Data2_Flag...
-    # We built output_units in the desired order (Col, Flag, Col, Flag)
-    # So we just need to reconstruct the column list for the dataframe
-    ordered_cols = []
-    for col in final_cols_with_ts:
-        ordered_cols.append(col)
-        if col not in ['TIMESTAMP', 'RECORD']:
-            ordered_cols.append(f"{col}_Flag")
-            
-    df_final = df_final[ordered_cols]
-            
-    # Write to CSV
-    print(f"Saving to {output_file}...")
+    # Fill text metadata for gap-filled rows
+    df_final['Station_ID'] = df_final['Station_ID'].fillna(STATION_ID)
     
-    with open(output_file, 'w') as f:
-        # 1. Header Row
-        # Use df_final.columns to ensure we match the actual data columns
-        f.write(",".join(df_final.columns) + "\n")
-        # 2. Units Row
-        # Make sure to handle NaNs or non-strings in units
-        clean_units = [str(x) if pd.notna(x) else "" for x in output_units]
-        f.write(",".join(clean_units) + "\n")
+    # Ffill metadata
+    for mc in meta_cols:
+        if mc in df_final.columns:
+            df_final[mc] = df_final[mc].fillna(method='ffill')
+            # If start of file has na (resampling before first record?), bfill
+            df_final[mc] = df_final[mc].fillna(method='bfill')
+    
+    # Now construct column list
+    final_col_order = ['TIMESTAMP', 'RECORD'] + data_cols + meta_cols
+    # Ensure all exist
+    final_col_order = [c for c in final_col_order if c in df_final.columns]
+    
+    df_final = df_final[final_col_order]
+    
+    # Add Flags
+    cols_to_write = []
+    
+    # Preparing the header rows lists
+    row_headers = [] # Row 1
+    row_units = []   # Row 2
+
+    for col in df_final.columns:
+        cols_to_write.append(col)
+        row_headers.append(col)
         
-    # Append data
-    # mode='a' (append)
-    df_final.to_csv(output_file, mode='a', header=False, index=False, na_rep='NaN')
+        # Units
+        if col == 'TIMESTAMP': u = 'TS'
+        elif col == 'RECORD': u = 'RN'
+        else: u = all_units.get(col, "")
+        row_units.append(u)
+        
+        # Flag Column
+        if col not in ['TIMESTAMP', 'RECORD'] + meta_cols:
+            flag_col = f"{col}_Flag"
+            df_final[flag_col] = ""
+            cols_to_write.append(flag_col)
+            
+            # Set M flag
+            mask_nan = df_final[col].isna()
+            df_final.loc[mask_nan, flag_col] = "M"
+            
+            # Add headers for flag col
+            row_headers.append(flag_col)
+            row_units.append("") 
+            
+    # Reorder df_final
+    df_final = df_final[cols_to_write]
     
+    # Save
+    print(f"Saving to {output_file}...")
+    with open(output_file, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(row_headers)
+        writer.writerow(row_units)
+        
+    df_final.to_csv(output_file, mode='a', header=False, index=False, na_rep='NaN')
     print("Done!")
 
 if __name__ == "__main__":
