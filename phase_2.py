@@ -25,15 +25,15 @@ THRESHOLDS = {
     'LWout_Avg': (0, 600),
     'TiltNS_deg_Avg': (-5, 5),
     'TiltWE_deg_Avg': (-5, 5),
-    'DBTCDT_Avg': (-5, 250), # Snow Depth
-    'DT_Avg': (50, 1000),    # Distance to target
-    'stmp_Avg': (-50, 50),   # Soil Temp
+    'DBTCDT_Avg': (-5, 250), 
+    'DT_Avg': (50, 1000),    
+    'stmp_Avg': (-50, 50),   
     'gtmp_Avg': (-50, 50),
     'BattV_Avg': (10, 16),
     'VP_mbar_Avg': (0, 80)
 }
 
-LEGACY_COLUMNS = [
+Add_caution_flag = [
     'BattV_Avg', 'PTemp_C_Avg', 'SlrFD_W_Avg', 'Dist_km_Avg', 'WS_ms_Avg', 
     'MaxWS_ms_Avg', 'AirT_C_Avg', 'VP_mbar_Avg', 'BP_mbar_Avg', 'RHT_C_Avg', 
     'TiltNS_deg_Avg', 'TiltWE_deg_Avg', 'Invalid_Wind_Avg', 'DT_Avg', 
@@ -127,49 +127,6 @@ def apply_thresholds(df):
             
     return df
 
-def apply_inheritance(df):
-    print("Applying Flag Inheritance...")
-    
-    # helper for inheritance
-    def inherit_flag(target_col, source_cols, flag_char='T'):
-        # Target Flag Column
-        t_flag_col = f"{target_col}_Flag"
-        if t_flag_col not in df.columns:
-            df[t_flag_col] = ""
-            
-        target_flags = df[t_flag_col].fillna("").astype(str)
-        
-        # Check if ANY source column has the flag 'T'
-        # We need to look at source FLAG columns
-        mask_source_has_flag = pd.Series(False, index=df.index)
-        
-        for sc in source_cols:
-            s_flag_col = f"{sc}_Flag"
-            if s_flag_col in df.columns:
-                s_flags = df[s_flag_col].fillna("").astype(str)
-                mask_source_has_flag |= s_flags.str.contains(flag_char)
-        
-        mask_target_clean = ~target_flags.str.contains('M')
-        
-        mask_apply = mask_source_has_flag & mask_target_clean & (~target_flags.str.contains(flag_char)) # Don't double add T
-        
-        if mask_apply.any():
-            count = mask_apply.sum()
-            print(f"  - {target_col}: Inheriting {flag_char} from sources for {count} records")
-            
-            targets = target_flags.loc[mask_apply]
-            new_flags = np.where(targets == "", flag_char, targets + f", {flag_char}")
-            df.loc[mask_apply, t_flag_col] = new_flags
-
-    # 1. Albedo inherits from SWin, SWout
-    inherit_flag('SWalbedo_Avg', ['SWin_Avg', 'SWout_Avg'], 'T')
-    
-    # 2. Net Rad inherits from SWin, SWout, LWin, LWout
-    inherit_flag('NR_Avg', ['SWin_Avg', 'SWout_Avg', 'LWin_Avg', 'LWout_Avg'], 'T')
-    # Use SWnet/LWnet? User said "see LW/SW". Usually NR depends on components.
-    
-    return df
-
 def apply_legacy_flags(df, target_id="222"):
     print(f"Applying Legacy 'C' Flags for Data_ID {target_id}...")
     
@@ -187,7 +144,7 @@ def apply_legacy_flags(df, target_id="222"):
     count = mask_legacy.sum()
     print(f"Found {count} legacy records.")
     
-    for col in LEGACY_COLUMNS:
+    for col in Add_caution_flag:
         if col not in df.columns:
             continue
             
@@ -219,9 +176,6 @@ def main():
     
     # 2b. Apply Legacy Flags
     df = apply_legacy_flags(df)
-    
-    # 3. Apply Inheritance
-    df = apply_inheritance(df)
     
     # 4. Cleanup Flags (Ensure empty flags are "" not NaN)
     flag_cols = [c for c in df.columns if c.endswith("_Flag")]
