@@ -2,13 +2,13 @@ import pandas as pd
 import numpy as np
 import os
 import csv
-import warnings
-
-# Suppress warnings
-warnings.simplefilter(action='ignore', category=FutureWarning)
+from datetime import datetime, timedelta, timezone
+from suntime import Sun
 
 INPUT_FILE = 'data/concatenated_one_year.csv'
 OUTPUT_FILE = 'data/concatenated_one_year_phase2.csv'
+
+
 
 # Threshold Configuration {Column: (Min, Max)}
 THRESHOLDS = {
@@ -23,8 +23,8 @@ THRESHOLDS = {
     'SWout_Avg': (0, 1350),
     'LWin_Avg': (0, 600),
     'LWout_Avg': (0, 600),
-    'TiltNS_deg_Avg': (-5, 5),
-    'TiltWE_deg_Avg': (-5, 5),
+    'TiltNS_deg_Avg': (-1, 5),
+    'TiltWE_deg_Avg': (-1, 5),
     'DBTCDT_Avg': (-5, 250), 
     'DT_Avg': (50, 1000),    
     'stmp_Avg': (-50, 50),   
@@ -33,6 +33,7 @@ THRESHOLDS = {
     'VP_mbar_Avg': (0, 80)
 }
 
+
 Add_caution_flag = [
     'BattV_Avg', 'PTemp_C_Avg', 'SlrFD_W_Avg', 'Dist_km_Avg', 'WS_ms_Avg', 
     'MaxWS_ms_Avg', 'AirT_C_Avg', 'VP_mbar_Avg', 'BP_mbar_Avg', 'RHT_C_Avg', 
@@ -40,6 +41,10 @@ Add_caution_flag = [
     'TCDT_Avg', 'DBTCDT_Avg', 'SWin_Avg', 'SWout_Avg', 'LWin_Avg', 
     'LWout_Avg', 'SWnet_Avg', 'LWnet_Avg', 'SWalbedo_Avg', 'NR_Avg', 
     'stmp_Avg', 'gtmp_Avg'
+]
+
+SOLAR_COLUMNS = [
+    'SlrFD_W_Avg', 'SWin_Avg', 'SWout_Avg', 'SWnet_Avg', 'SlrTF_MJ_Tot'
 ]
 
 def load_data(filepath):
@@ -161,6 +166,94 @@ def apply_legacy_flags(df, target_id="222"):
         
     return df
 
+def apply_nighttime_flags(df):
+    print("Applying Nighttime 'Z' Flags for Solar Data...")
+    latitude = 53.7217
+    longitude = -125.6417
+
+    sun = Sun(latitude, longitude)
+    
+    # 1. Ensure TIMESTAMP is datetime
+    if 'TIMESTAMP' not in df.columns:
+        print("Error: TIMESTAMP column missing.")
+        return df
+        
+    # Ensure datetime objects
+    df['TIMESTAMP'] = pd.to_datetime(df['TIMESTAMP'])
+    
+    # 2. Define Timezone: Fixed PDT (UTC-7)
+    # The data is in PDT year-round.
+    tz_pdt = timezone(timedelta(hours=-7))
+    
+    # 3. Iterate by unique dates to calculate sunrise/set
+    # Create a column for just the date component to iterate
+    temp_dates = df['TIMESTAMP'].dt.date
+    unique_dates = temp_dates.unique()
+    
+    records_flagged = 0
+    
+    for d in unique_dates:
+        # Convert date to datetime to satisfy suntime requirements
+        current_date = datetime(d.year, d.month, d.day)
+        
+        # Calculate Sunrise/Sunset (Returns UTC datetime)
+        try:
+            rise_utc = sun.get_sunrise_time(current_date)
+            set_utc = sun.get_sunset_time(current_date)
+        except Exception as e:
+            print(f"Warning: Could not calc sun time for {d}: {e}")
+            continue
+            
+        # Convert to Fixed PDT
+        rise_pdt = rise_utc.astimezone(tz_pdt)
+        set_pdt = set_utc.astimezone(tz_pdt)
+        
+        # Make Naive to match CSV TIMESTAMPs (which are naive PDT)
+        rise_naive = rise_pdt.replace(tzinfo=None)
+        set_naive = set_pdt.replace(tzinfo=None)
+        
+        # Mask for this date
+        mask_date = (temp_dates == d)
+        
+        # Get the timestamps for this date
+        ts_values = df.loc[mask_date, 'TIMESTAMP']
+        
+        # Night Mask: Time < Rise OR Time > Set
+        mask_night_time = (ts_values < rise_naive) | (ts_values > set_naive)
+        
+        # Get indices
+        night_index_subset = ts_values[mask_night_time].index
+        
+        if len(night_index_subset) == 0:
+            continue
+            
+        # Check Solar Columns for Non-Zero
+        for col in SOLAR_COLUMNS:
+            if col not in df.columns:
+                continue
+                
+            # Get values for night rows
+            vals = pd.to_numeric(df.loc[night_index_subset, col], errors='coerce').fillna(0)
+            
+            # Non-zero mask (using small epsilon)
+            mask_nonzero = (vals.abs() > 0.0001)
+            
+            if mask_nonzero.any():
+                target_indices = vals[mask_nonzero].index
+                
+                flag_col = f"{col}_Flag"
+                if flag_col not in df.columns:
+                    df[flag_col] = ""
+                    
+                current_flags = df.loc[target_indices, flag_col].fillna("").astype(str)
+                new_flags = np.where(current_flags == "", "Z", current_flags + ", Z")
+                
+                df.loc[target_indices, flag_col] = new_flags
+                records_flagged += len(target_indices)
+
+    print(f"Flagged {records_flagged} solar records with 'Z'.")
+    return df
+
 def main():
     if not os.path.exists(INPUT_FILE):
         print(f"Error: Input file {INPUT_FILE} not found.")
@@ -176,6 +269,8 @@ def main():
     
     # 2b. Apply Legacy Flags
     df = apply_legacy_flags(df)
+    
+    # 3. Apply Nighttime Flags
     
     # 4. Cleanup Flags (Ensure empty flags are "" not NaN)
     flag_cols = [c for c in df.columns if c.endswith("_Flag")]
