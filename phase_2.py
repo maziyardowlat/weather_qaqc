@@ -33,6 +33,15 @@ THRESHOLDS = {
     'VP_mbar_Avg': (0, 80)
 }
 
+LEGACY_COLUMNS = [
+    'BattV_Avg', 'PTemp_C_Avg', 'SlrFD_W_Avg', 'Dist_km_Avg', 'WS_ms_Avg', 
+    'MaxWS_ms_Avg', 'AirT_C_Avg', 'VP_mbar_Avg', 'BP_mbar_Avg', 'RHT_C_Avg', 
+    'TiltNS_deg_Avg', 'TiltWE_deg_Avg', 'Invalid_Wind_Avg', 'DT_Avg', 
+    'TCDT_Avg', 'DBTCDT_Avg', 'SWin_Avg', 'SWout_Avg', 'LWin_Avg', 
+    'LWout_Avg', 'SWnet_Avg', 'LWnet_Avg', 'SWalbedo_Avg', 'NR_Avg', 
+    'stmp_Avg', 'gtmp_Avg'
+]
+
 def load_data(filepath):
     print(f"Reading {filepath}...")
     
@@ -161,6 +170,40 @@ def apply_inheritance(df):
     
     return df
 
+def apply_legacy_flags(df, target_id="222"):
+    print(f"Applying Legacy 'C' Flags for Data_ID {target_id}...")
+    
+    # Ensure Data_ID is string for comparison
+    if 'Data_ID' not in df.columns:
+        print("Warning: Data_ID column not found. Skipping legacy flags.")
+        return df
+        
+    mask_legacy = (df['Data_ID'].astype(str) == target_id)
+    
+    if not mask_legacy.any():
+        print(f"No records found with Data_ID {target_id}")
+        return df
+        
+    count = mask_legacy.sum()
+    print(f"Found {count} legacy records.")
+    
+    for col in LEGACY_COLUMNS:
+        if col not in df.columns:
+            continue
+            
+        flag_col = f"{col}_Flag"
+        if flag_col not in df.columns:
+            df[flag_col] = ""
+            
+        current_flags = df.loc[mask_legacy, flag_col].fillna("").astype(str)
+        
+        # Append 'C', handling existing flags
+        new_flags = np.where(current_flags == "", "C", current_flags + ", C")
+        
+        df.loc[mask_legacy, flag_col] = new_flags
+        
+    return df
+
 def main():
     if not os.path.exists(INPUT_FILE):
         print(f"Error: Input file {INPUT_FILE} not found.")
@@ -173,6 +216,9 @@ def main():
     # 2. Apply Thresholds
     df = apply_thresholds(df)
     df = apply_uniquecases(df)
+    
+    # 2b. Apply Legacy Flags
+    df = apply_legacy_flags(df)
     
     # 3. Apply Inheritance
     df = apply_inheritance(df)
