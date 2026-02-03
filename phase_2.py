@@ -135,8 +135,19 @@ def apply_thresholds(df):
         # Create numeric series for comparison, handling non-numerics if any
         vals = pd.to_numeric(df[col], errors='coerce')
         
+        # Prepare Limit Values (Handle Dynamic Column References)
+        if isinstance(min_v, str) and min_v in df.columns:
+            limit_min = pd.to_numeric(df[min_v], errors='coerce')
+        else:
+            limit_min = min_v
+
+        if isinstance(max_v, str) and max_v in df.columns:
+            limit_max = pd.to_numeric(df[max_v], errors='coerce')
+        else:
+            limit_max = max_v
+        
         # Identify Violations
-        mask_fail = (vals < min_v) | (vals > max_v)
+        mask_fail = (vals < limit_min) | (vals > limit_max)
         
         # Check Existing Flags for 'M'
         # ensure string
@@ -203,28 +214,24 @@ def apply_dynamic_thresholds(df):
         df['TIMESTAMP'] = pd.to_datetime(df['TIMESTAMP'])
 
     # 1. Check SWout_Avg > SWin_Avg
-    if 'SWout_Avg' in df.columns and 'SWin_Avg' in df.columns:
-        sw_out = pd.to_numeric(df['SWout_Avg'], errors='coerce')
-        sw_in = pd.to_numeric(df['SWin_Avg'], errors='coerce')
-        
-        # Check condition: SWout > SWin
-        mask_fail = (sw_out > sw_in)
-        
-        if mask_fail.any():
-            col = 'SWout_Avg'
-            flag_col = f"{col}_Flag"
-            if flag_col not in df.columns: df[flag_col] = ""
-            
-            print(f"  - {col}: Flagging {mask_fail.sum()} records > SWin_Avg (M/T check needed?)")
-            # Logic: If SWout > SWin, it's physically impossible or unlikely (except specific snow-capping events?)
-            # Prompt says: "SWout_Avg < 0 OR > SWin_Avg" -> T
-            
-            current_flags = df.loc[mask_fail, flag_col].fillna("").astype(str)
-            new_flags = np.where(current_flags == "", "T", current_flags + ", T")
-            df.loc[mask_fail, flag_col] = new_flags
+    # NOTE: This is now handled in apply_thresholds via 'SWout_Avg': (0, 'SWin_Avg')
+    # Leaving strict logic commented if needed in future, but preventing double 'T' flags.
+    # if 'SWout_Avg' in df.columns and 'SWin_Avg' in df.columns:
+    #     sw_out = pd.to_numeric(df['SWout_Avg'], errors='coerce')
+    #     sw_in = pd.to_numeric(df['SWin_Avg'], errors='coerce')
+    #     
+    #     mask_fail = (sw_out > sw_in)
+    #     if mask_fail.any():
+    #         col = 'SWout_Avg'
+    #         flag_col = f"{col}_Flag"
+    #         if flag_col not in df.columns: df[flag_col] = ""
+    #         print(f"  - {col}: Flagging {mask_fail.sum()} records > SWin_Avg (M/T check needed?)")
+    #         current_flags = df.loc[mask_fail, flag_col].fillna("").astype(str)
+    #         new_flags = np.where(current_flags == "", "T", current_flags + ", T")
+    #         # df.loc[mask_fail, flag_col] = new_flags
 
     # 2. Snow Depth Limits & Summer Flag (SF)
-    # Physical Max Snow Depth = H - 50 (Blind zone)
+    # Physical Max Snow Depth = H - 50 
     limit = SENSOR_HEIGHT - 50
     
     # T Check for DBTCDT (Snow Depth)
@@ -236,7 +243,6 @@ def apply_dynamic_thresholds(df):
         if mask_fail.any():
             col = 'DBTCDT_Avg'
             flag_col = f"{col}_Flag"
-            if flag_col not in df.columns: df[flag_col] = ""
             print(f"  - {col}: Flagging {mask_fail.sum()} records > {limit} (H-50)")
             current_flags = df.loc[mask_fail, flag_col].fillna("").astype(str)
             new_flags = np.where(current_flags == "", "T", current_flags + ", T")
@@ -266,9 +272,9 @@ def apply_dynamic_thresholds(df):
             col = 'WindDir'
             flag_col = f"{col}_Flag"
             if flag_col not in df.columns: df[flag_col] = ""
-            print(f"  - {col}: Flagging {mask_calm.sum()} records with 'NV' (No Wind)")
+            print(f"  - {col}: Flagging {mask_calm.sum()} records with 'NW' (No Wind)")
             current_flags = df.loc[mask_calm, flag_col].fillna("").astype(str)
-            new_flags = np.where(current_flags == "", "NV", current_flags + ", NV")
+            new_flags = np.where(current_flags == "", "NW", current_flags + ", NW")
             df.loc[mask_calm, flag_col] = new_flags
 
     # 4. SU Flag: Longwave Difference (LWout > LWin + 25) -> Dome Heating
@@ -295,10 +301,6 @@ def apply_dynamic_thresholds(df):
     if 'SWalbedo_Avg' in df.columns:
         alb = pd.to_numeric(df['SWalbedo_Avg'], errors='coerce')
         mask_su = (alb < 0.1) | (alb > 0.95)
-        # However, T flag (<0 or >1) might already be set. SU implies "Possible but Suspicious".
-        # If it's T, it's definitely bad. If it's valid (0-1) but extreme, it's SU.
-        # Ensure we don't overwrite T or flag both if not needed.
-        # But generally SU is additional info.
         
         if mask_su.any():
             col = 'SWalbedo_Avg'
@@ -417,7 +419,6 @@ def apply_nighttime_flags(df):
     
     for d in unique_dates:
         # Search for correct sunrise/sunset for this local date
-        # Because of timezone shifts (UTC-7), the UTC event might be on d or d+1
         rise_naive = None
         set_naive = None
         
@@ -440,14 +441,6 @@ def apply_nighttime_flags(df):
             except Exception as e:
                 # Polar night/day or calculation error
                 continue
-                
-        if rise_naive is None or set_naive is None:
-            # Could not determine distinct day/night cycle for this date (e.g. high lat edge case or error)
-            # For 53N this should only happen if library fails.
-            # We can try to skip or fallback to valid bounds if one exists.
-            if rise_naive is None: rise_naive = datetime(d.year, d.month, d.day, 6, 0) # Fallback 6am
-            if set_naive is None: set_naive = datetime(d.year, d.month, d.day, 18, 0) # Fallback 6pm
-            # continue # Optionally skip enforcing Z flags this day
         
         # Mask for this date
         mask_date = (temp_dates == d)
@@ -455,6 +448,11 @@ def apply_nighttime_flags(df):
         # Get the timestamps for this date
         ts_values = df.loc[mask_date, 'TIMESTAMP']
         
+        # Verify we found both times
+        if rise_naive is None or set_naive is None:
+            # print(f"Warning: Could not determine sunrise/sunset for {d} (Polar Day/Night?)")
+            continue
+
         # Night Mask: Time < Rise OR Time > Set
         mask_night_time = (ts_values < rise_naive) | (ts_values > set_naive)
         
