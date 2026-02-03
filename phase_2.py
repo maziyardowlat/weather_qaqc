@@ -11,27 +11,70 @@ OUTPUT_FILE = 'data/concatenated_one_year_phase2.csv'
 
 
 # Threshold Configuration {Column: (Min, Max)}
+SENSOR_HEIGHT = 200 # Default Sensor Height in cm (H). Update with actual station metadata if available.
+
+# Threshold Configuration {Column: (Min, Max)}
 THRESHOLDS = {
-    'AirT_C_Avg': (-50, 50),
-    'RHT_C_Avg': (-50, 50),
-    'RH': (0, 100),
-    'BP_mbar_Avg': (850, 1050),
-    'WS_ms_Avg': (0, 50),
+    'BattV_Avg': (10, 16),
+    'PTemp_C_Avg': (-40, 70),
+    'RHT_C_Avg': (-40, 50),
+    'SlrFD_W_Avg': (0, 1350),
+    'Rain_mm_Tot': (0, 33),
+    'Strikes_tot': (0, 66635),
+    'Dist_km_Avg': (0, 40),
+    'WS_ms_Avg': (0, 30),
     'WindDir': (0, 360),
-    'Rain_mm_Tot': (0, 50),
+    'AirT_C_Avg': (-50, 60),
+    'VP_hPa_Avg': (0, 470),
+    'VP_mbar_Avg': (0, 470), # Alias for backward compatibility
+    'BP_hPa_Avg': (850, 1050),
+    'BP_mbar_Avg': (850, 1050), # Alias for backward compatibility
+    'RH': (0, 100),
+    'TiltNS_deg_Avg': (-3, 3),
+    'TiltWE_deg_Avg': (-3, 3),
+    'SlrTF_MJ_Tot': (0, 1.215),
+    'DT_Avg': (50, 1000), # Note: Upper limit is dynamic (H + 5)
+    'DBTCDT_Avg': (0, 1000), # Note: Upper limit is dynamic (H + 5)
     'SWin_Avg': (0, 1350),
     'SWout_Avg': (0, 1350),
-    'LWin_Avg': (0, 600),
-    'LWout_Avg': (0, 600),
-    'TiltNS_deg_Avg': (-1, 5),
-    'TiltWE_deg_Avg': (-1, 5),
-    'DBTCDT_Avg': (-5, 250), 
-    'DT_Avg': (50, 1000),    
-    'stmp_Avg': (-50, 50),   
-    'gtmp_Avg': (-50, 50),
-    'BattV_Avg': (10, 16),
-    'VP_mbar_Avg': (0, 80)
+    'LWin_Avg': (100, 550),
+    'LWout_Avg': (150, 600),
+    'SWnet_Avg': (0, 1350),
+    'LWnet_Avg': (-300, 100),
+    'SWalbedo_Avg': (0, 1),
+    'NR_Avg': (-200, 1000),
+    'stmp_Avg': (-50, 60),
+    'gtmp_Avg': (-50, 60), 
+    'TCDT_Avg': (-1000, 1000) # Placeholder if needed
 }
+
+# Dependency Configuration
+# Target: { source_cols: [], flags: [], output_flag: 'DF'/'SU' }
+# trigger_flags: The flags in the source column that trigger the action
+DEPENDENCY_CONFIG = [
+    # ClimaVue50
+    {'target': 'SlrFD_W_Avg', 'sources': ['TiltNS_deg_Avg', 'TiltWE_deg_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
+    {'target': 'Rain_mm_Tot', 'sources': ['TiltNS_deg_Avg', 'TiltWE_deg_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
+    {'target': 'AirT_C_Avg', 'sources': ['SlrFD_W_Avg', 'WS_ms_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
+    {'target': 'VP_hPa_Avg', 'sources': ['RHT_C_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
+    {'target': 'VP_mbar_Avg', 'sources': ['RHT_C_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
+    {'target': 'RH', 'sources': ['VP_hPa_Avg', 'AirT_C_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
+    {'target': 'RH', 'sources': ['VP_mbar_Avg', 'AirT_C_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
+    
+    {'target': 'SlrTF_MJ_Tot', 'sources': ['SlrFD_W_Avg'], 'trigger_flags': ['T', 'ERR', 'Z'], 'set_flag': 'DF'},
+    
+    # SR50
+    {'target': 'TCDT_Avg', 'sources': ['DT_Avg'], 'trigger_flags': ['T'], 'set_flag': 'DF'},
+    {'target': 'TCDT_Avg', 'sources': ['AirT_C_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'SU'},
+    {'target': 'DBTCDT_Avg', 'sources': ['TCDT_Avg'], 'trigger_flags': ['T'], 'set_flag': 'DF'},
+    {'target': 'DBTCDT_Avg', 'sources': ['TCDT_Avg'], 'trigger_flags': ['SU'], 'set_flag': 'SU'},
+    
+    # Net Radiometer
+    {'target': 'SWnet_Avg', 'sources': ['SWin_Avg', 'SWout_Avg'], 'trigger_flags': ['T', 'ERR', 'Z'], 'set_flag': 'DF'},
+    {'target': 'LWnet_Avg', 'sources': ['LWin_Avg', 'LWout_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
+    {'target': 'SWalbedo_Avg', 'sources': ['SWin_Avg', 'SWout_Avg'], 'trigger_flags': ['T', 'ERR', 'Z'], 'set_flag': 'DF'},
+    {'target': 'NR_Avg', 'sources': ['SWin_Avg', 'SWout_Avg', 'LWin_Avg', 'LWout_Avg'], 'trigger_flags': ['T', 'ERR', 'Z'], 'set_flag': 'DF'},
+]
 
 
 Add_caution_flag = [
@@ -166,6 +209,128 @@ def apply_legacy_flags(df, target_id="222"):
         
     return df
 
+def apply_dynamic_thresholds(df):
+    print("Applying Dynamic Thresholds...")
+    
+    # 1. Check SWout_Avg > SWin_Avg
+    if 'SWout_Avg' in df.columns and 'SWin_Avg' in df.columns:
+        sw_out = pd.to_numeric(df['SWout_Avg'], errors='coerce')
+        sw_in = pd.to_numeric(df['SWin_Avg'], errors='coerce')
+        
+        # Check condition: SWout > SWin
+        mask_fail = (sw_out > sw_in)
+        
+        if mask_fail.any():
+            col = 'SWout_Avg'
+            flag_col = f"{col}_Flag"
+            if flag_col not in df.columns: df[flag_col] = ""
+            
+            print(f"  - {col}: Flagging {mask_fail.sum()} records > SWin_Avg")
+            current_flags = df.loc[mask_fail, flag_col].fillna("").astype(str)
+            
+            # Apply T if not present
+            # If "T" is already there, we don't need to duplicate it, but appending is safe.
+            # To avoid "T, T", checks if not contains T?
+            # optimization: mask_fail & ~current_flags.str.contains('T')
+            
+            new_flags = np.where(current_flags == "", "T", current_flags + ", T")
+            df.loc[mask_fail, flag_col] = new_flags
+
+    # 2. Check DT_Avg and DBTCDT_Avg against H + 5
+    limit = SENSOR_HEIGHT + 5
+    for col in ['DT_Avg', 'DBTCDT_Avg']:
+        if col in df.columns:
+            vals = pd.to_numeric(df[col], errors='coerce')
+            mask_fail = (vals > limit)
+            
+            if mask_fail.any():
+                flag_col = f"{col}_Flag"
+                if flag_col not in df.columns: df[flag_col] = ""
+                
+                print(f"  - {col}: Flagging {mask_fail.sum()} records > {limit} (H+5)")
+                current_flags = df.loc[mask_fail, flag_col].fillna("").astype(str)
+                new_flags = np.where(current_flags == "", "T", current_flags + ", T")
+                df.loc[mask_fail, flag_col] = new_flags
+
+    return df
+
+def apply_critical_flags(df):
+    print("Checking Critical Flags (PTemp)...")
+    if 'PTemp_C_Avg' not in df.columns:
+        return df
+        
+    # Check if PTemp has 'T' flag
+    ptemp_flag_col = 'PTemp_C_Avg_Flag'
+    if ptemp_flag_col not in df.columns:
+        return df
+        
+    current_ptemp_flags = df[ptemp_flag_col].fillna("").astype(str)
+    # Mask of rows where PTemp is T. (Using exact match for safety)
+    mask_critical = current_ptemp_flags.str.contains(r'\bT\b', regex=True)
+    
+    if mask_critical.any():
+        print(f"CRITICAL: Found {mask_critical.sum()} records with PTemp Failure. Flagging ALL columns with ERR.")
+        
+        # Apply ERR to ALL other parameters defined in THRESHOLDS
+        for col in THRESHOLDS.keys():
+            if col == 'PTemp_C_Avg': continue
+            if col not in df.columns: continue
+            
+            flag_col = f"{col}_Flag"
+            if flag_col not in df.columns: df[flag_col] = ""
+            
+            current_flags = df.loc[mask_critical, flag_col].fillna("").astype(str)
+            new_flags = np.where(current_flags == "", "ERR", current_flags + ", ERR")
+            df.loc[mask_critical, flag_col] = new_flags
+            
+    return df
+
+def apply_dependencies(df):
+    print("Applying Dependency Flags...")
+    
+    for config in DEPENDENCY_CONFIG:
+        target_col = config['target']
+        source_cols = config['sources']
+        trigger_flags = config['trigger_flags'] 
+        set_flag = config['set_flag']
+        
+        if target_col not in df.columns:
+            continue
+            
+        target_flag_col = f"{target_col}_Flag"
+        if target_flag_col not in df.columns:
+             df[target_flag_col] = ""
+
+        # Check sources
+        dependency_fail_mask = pd.Series(False, index=df.index)
+        
+        for src in source_cols:
+            if src not in df.columns:
+                continue
+            
+            src_flag_col = f"{src}_Flag"
+            if src_flag_col not in df.columns:
+                continue
+                
+            current_src_flags = df[src_flag_col].fillna("").astype(str)
+            
+            # Construct regex for trigger flags
+            pattern = "|".join([rf"\b{f}\b" for f in trigger_flags])
+            
+            has_error = current_src_flags.str.contains(pattern, regex=True)
+            dependency_fail_mask = dependency_fail_mask | has_error
+            
+        if dependency_fail_mask.any():
+            count = dependency_fail_mask.sum()
+            # print(f"  - {target_col}: Flagging {count} records with {set_flag} (Dep)")
+            
+            current_flags = df.loc[dependency_fail_mask, target_flag_col].fillna("").astype(str)
+            new_flags = np.where(current_flags == "", set_flag, current_flags + ", " + set_flag)
+            df.loc[dependency_fail_mask, target_flag_col] = new_flags
+            
+    return df
+
+    
 def apply_nighttime_flags(df):
     print("Applying Nighttime 'Z' Flags for Solar Data...")
     latitude = 53.7217
@@ -193,24 +358,38 @@ def apply_nighttime_flags(df):
     records_flagged = 0
     
     for d in unique_dates:
-        # Convert date to datetime to satisfy suntime requirements
-        current_date = datetime(d.year, d.month, d.day)
+        # Search for correct sunrise/sunset for this local date
+        # Because of timezone shifts (UTC-7), the UTC event might be on d or d+1
+        rise_naive = None
+        set_naive = None
         
-        # Calculate Sunrise/Sunset (Returns UTC datetime)
-        try:
-            rise_utc = sun.get_sunrise_time(current_date)
-            set_utc = sun.get_sunset_time(current_date)
-        except Exception as e:
-            print(f"Warning: Could not calc sun time for {d}: {e}")
-            continue
-            
-        # Convert to Fixed PDT
-        rise_pdt = rise_utc.astimezone(tz_pdt)
-        set_pdt = set_utc.astimezone(tz_pdt)
+        # Check current day and next day to capture events that cross UTC midnight
+        candidates = [datetime(d.year, d.month, d.day), datetime(d.year, d.month, d.day) + timedelta(days=1)]
         
-        # Make Naive to match CSV TIMESTAMPs (which are naive PDT)
-        rise_naive = rise_pdt.replace(tzinfo=None)
-        set_naive = set_pdt.replace(tzinfo=None)
+        for cand in candidates:
+            try:
+                # Check Sunrise
+                r_utc = sun.get_sunrise_time(cand)
+                r_pdt = r_utc.astimezone(tz_pdt)
+                if r_pdt.date() == d:
+                    rise_naive = r_pdt.replace(tzinfo=None)
+                
+                # Check Sunset
+                s_utc = sun.get_sunset_time(cand)
+                s_pdt = s_utc.astimezone(tz_pdt)
+                if s_pdt.date() == d:
+                    set_naive = s_pdt.replace(tzinfo=None)
+            except Exception as e:
+                # Polar night/day or calculation error
+                continue
+                
+        if rise_naive is None or set_naive is None:
+            # Could not determine distinct day/night cycle for this date (e.g. high lat edge case or error)
+            # For 53N this should only happen if library fails.
+            # We can try to skip or fallback to valid bounds if one exists.
+            if rise_naive is None: rise_naive = datetime(d.year, d.month, d.day, 6, 0) # Fallback 6am
+            if set_naive is None: set_naive = datetime(d.year, d.month, d.day, 18, 0) # Fallback 6pm
+            # continue # Optionally skip enforcing Z flags this day
         
         # Mask for this date
         mask_date = (temp_dates == d)
@@ -263,14 +442,22 @@ def main():
     df, headers, units = load_data(INPUT_FILE)
     print(f"Loaded {len(df)} rows.")
     
-    # 2. Apply Thresholds
+    # 2. Apply Thresholds (Static Min/Max)
     df = apply_thresholds(df)
+    
+    # 3. Apply Dynamic Thresholds & Nighttime
+    df = apply_dynamic_thresholds(df)
+    df = apply_nighttime_flags(df)
+    
+    # 4. Critical Flags (PTemp Failure)
+    df = apply_critical_flags(df)
+    
+    # 5. Apply Unique Cases & Legacy
     df = apply_uniquecases(df)
-    
-    # 2b. Apply Legacy Flags
     df = apply_legacy_flags(df)
-    
-    # 3. Apply Nighttime Flags
+
+    # 6. Apply Dependencies (Checks T, ERR, Z set above)
+    df = apply_dependencies(df)
     
     # 4. Cleanup Flags (Ensure empty flags are "" not NaN)
     flag_cols = [c for c in df.columns if c.endswith("_Flag")]
