@@ -58,6 +58,15 @@ column_mapping = {
     'stmp2': 'gtmp_Avg'
 }
 
+column_rename = {
+    'VP_mbar_Avg': 'VP_hPa_Avg',
+    'BP_mbar_Avg': 'BP_hPa_Avg'
+}
+
+column_unit_rename = {
+    "mbar": "hPa"
+}
+
 def parse_toa5_header(filepath):
     """
     Parses the first line of a TOA5 file to extract:
@@ -206,6 +215,16 @@ def main():
     print("Concatenating datasets...")
     df_all = pd.concat(dfs, ignore_index=True)
     print(f"Total records: {len(df_all)}")
+
+    df_all = df_all.rename(columns=column_rename)
+    
+    # Update units map to reflect column renames and unit changes
+    new_all_units = {}
+    for col, unit in all_units.items():
+        new_col = column_rename.get(col, col)
+        new_unit = column_unit_rename.get(unit, unit)
+        new_all_units[new_col] = new_unit
+    all_units = new_all_units
     
     # 3. Process Time
     if 'TIMESTAMP' not in df_all.columns:

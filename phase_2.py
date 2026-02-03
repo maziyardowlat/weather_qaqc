@@ -8,10 +8,8 @@ from suntime import Sun
 INPUT_FILE = 'data/concatenated_one_year.csv'
 OUTPUT_FILE = 'data/concatenated_one_year_phase2.csv'
 
-
-
 # Threshold Configuration {Column: (Min, Max)}
-SENSOR_HEIGHT = 200 # Default Sensor Height in cm (H). Update with actual station metadata if available.
+SENSOR_HEIGHT = 166 # Default Sensor Height in cm (H).
 
 # Threshold Configuration {Column: (Min, Max)}
 THRESHOLDS = {
@@ -33,8 +31,8 @@ THRESHOLDS = {
     'TiltNS_deg_Avg': (-3, 3),
     'TiltWE_deg_Avg': (-3, 3),
     'SlrTF_MJ_Tot': (0, 1.215),
-    'DT_Avg': (50, 1000), # Note: Upper limit is dynamic (H + 5)
-    'DBTCDT_Avg': (0, 1000), # Note: Upper limit is dynamic (H + 5)
+    'DT_Avg': (50, 1000), 
+    'DBTCDT_Avg': (0, 1000), # Placeholder Max, overridden by dynamic logic
     'SWin_Avg': (0, 1350),
     'SWout_Avg': (0, 1350),
     'LWin_Avg': (100, 550),
@@ -45,7 +43,7 @@ THRESHOLDS = {
     'NR_Avg': (-200, 1000),
     'stmp_Avg': (-50, 60),
     'gtmp_Avg': (-50, 60), 
-    'TCDT_Avg': (-1000, 1000) # Placeholder if needed
+    'TCDT_Avg': (-1000, 1000) 
 }
 
 # Dependency Configuration
@@ -119,22 +117,30 @@ def apply_uniquecases(df):
 
     if found_col:
         col = found_col
-        # Check for 0 values. Coerce to numeric ensures we handle strings "0" correctly if needed.
+        # Coerce to numeric
         vals = pd.to_numeric(df[col], errors='coerce')
-        mask_zero = (vals == 0)
-
-        if mask_zero.any():
+        
+        # Check if previous value is greater than current value (Logger Reset)
+        # diff = current - previous. If diff < 0, then previous > current.
+        # shifting 1 gives the previous value.
+        prev_vals = vals.shift(1)
+        is_start = vals.shift(1).isna()
+        # Mask where current < previous (Restart)
+        # We also treat 0 as a restart if it's the start (though shift(1) is NaN there)
+        # Correctly grouping (is_start & (vals == 0)) because & has higher precedence than == in some contexts or to be explicit.
+        mask_restart = (vals < prev_vals) | (is_start & (vals == 0))
+        if mask_restart.any():
             flag_col = f"{col}_Flag"
             if flag_col not in df.columns:
                 df[flag_col] = ""
 
-            print(f"  - {col}: Flagging {mask_zero.sum()} records with value 0 as 'LR'")
+            print(f"  - {col}: Flagging {mask_restart.sum()} records as 'LR' (Sequence Drop)")
 
             current_flags = df[flag_col].fillna("").astype(str)
-            targets = current_flags.loc[mask_zero]
-            # Add C flag, appending if existing flags present
+            targets = current_flags.loc[mask_restart]
+            # Add LR flag
             new_flags = np.where(targets == "", "LR", targets + ", LR")
-            df.loc[mask_zero, flag_col] = new_flags
+            df.loc[mask_restart, flag_col] = new_flags
 
     return df
 
@@ -210,8 +216,13 @@ def apply_legacy_flags(df, target_id="222"):
     return df
 
 def apply_dynamic_thresholds(df):
-    print("Applying Dynamic Thresholds...")
+    print("Applying Dynamic Thresholds & Logic Flags...")
     
+    # Ensure TIMESTAMP for seasonal checks
+    has_date = 'TIMESTAMP' in df.columns
+    if has_date:
+        df['TIMESTAMP'] = pd.to_datetime(df['TIMESTAMP'])
+
     # 1. Check SWout_Avg > SWin_Avg
     if 'SWout_Avg' in df.columns and 'SWin_Avg' in df.columns:
         sw_out = pd.to_numeric(df['SWout_Avg'], errors='coerce')
@@ -225,32 +236,100 @@ def apply_dynamic_thresholds(df):
             flag_col = f"{col}_Flag"
             if flag_col not in df.columns: df[flag_col] = ""
             
-            print(f"  - {col}: Flagging {mask_fail.sum()} records > SWin_Avg")
+            print(f"  - {col}: Flagging {mask_fail.sum()} records > SWin_Avg (M/T check needed?)")
+            # Logic: If SWout > SWin, it's physically impossible or unlikely (except specific snow-capping events?)
+            # Prompt says: "SWout_Avg < 0 OR > SWin_Avg" -> T
+            
             current_flags = df.loc[mask_fail, flag_col].fillna("").astype(str)
-            
-            # Apply T if not present
-            # If "T" is already there, we don't need to duplicate it, but appending is safe.
-            # To avoid "T, T", checks if not contains T?
-            # optimization: mask_fail & ~current_flags.str.contains('T')
-            
             new_flags = np.where(current_flags == "", "T", current_flags + ", T")
             df.loc[mask_fail, flag_col] = new_flags
 
-    # 2. Check DT_Avg and DBTCDT_Avg against H + 5
-    limit = SENSOR_HEIGHT + 5
-    for col in ['DT_Avg', 'DBTCDT_Avg']:
-        if col in df.columns:
-            vals = pd.to_numeric(df[col], errors='coerce')
-            mask_fail = (vals > limit)
+    # 2. Snow Depth Limits & Summer Flag (SF)
+    # Physical Max Snow Depth = H - 50 (Blind zone)
+    limit = SENSOR_HEIGHT - 50
+    
+    # T Check for DBTCDT (Snow Depth)
+    if 'DBTCDT_Avg' in df.columns:
+        vals = pd.to_numeric(df['DBTCDT_Avg'], errors='coerce')
+        
+        # > H-50 is T (Physical Limit)
+        mask_fail = (vals > limit)
+        if mask_fail.any():
+            col = 'DBTCDT_Avg'
+            flag_col = f"{col}_Flag"
+            if flag_col not in df.columns: df[flag_col] = ""
+            print(f"  - {col}: Flagging {mask_fail.sum()} records > {limit} (H-50)")
+            current_flags = df.loc[mask_fail, flag_col].fillna("").astype(str)
+            new_flags = np.where(current_flags == "", "T", current_flags + ", T")
+            df.loc[mask_fail, flag_col] = new_flags
+    
+        # SF Check: Snow Depth > 0 during Jun-Sep
+        if has_date:
+            months = df['TIMESTAMP'].dt.month
+            mask_summer = months.isin([6, 7, 8, 9])
+            mask_snow = (vals > 0)
+            mask_sf = mask_summer & mask_snow
             
-            if mask_fail.any():
+            if mask_sf.any():
+                col = 'DBTCDT_Avg'
                 flag_col = f"{col}_Flag"
-                if flag_col not in df.columns: df[flag_col] = ""
-                
-                print(f"  - {col}: Flagging {mask_fail.sum()} records > {limit} (H+5)")
-                current_flags = df.loc[mask_fail, flag_col].fillna("").astype(str)
-                new_flags = np.where(current_flags == "", "T", current_flags + ", T")
-                df.loc[mask_fail, flag_col] = new_flags
+                print(f"  - {col}: Flagging {mask_sf.sum()} records with 'SF' (Summer Snow)")
+                current_flags = df.loc[mask_sf, flag_col].fillna("").astype(str)
+                new_flags = np.where(current_flags == "", "SF", current_flags + ", SF")
+                df.loc[mask_sf, flag_col] = new_flags
+
+    # 3. NV Flag: Wind Speed == 0 -> No Direction
+    if 'WS_ms_Avg' in df.columns and 'WindDir' in df.columns:
+        ws = pd.to_numeric(df['WS_ms_Avg'], errors='coerce').fillna(0)
+        mask_calm = (ws == 0)
+        
+        if mask_calm.any():
+            col = 'WindDir'
+            flag_col = f"{col}_Flag"
+            if flag_col not in df.columns: df[flag_col] = ""
+            print(f"  - {col}: Flagging {mask_calm.sum()} records with 'NV' (No Wind)")
+            current_flags = df.loc[mask_calm, flag_col].fillna("").astype(str)
+            new_flags = np.where(current_flags == "", "NV", current_flags + ", NV")
+            df.loc[mask_calm, flag_col] = new_flags
+
+    # 4. SU Flag: Longwave Difference (LWout > LWin + 25) -> Dome Heating
+    if 'LWin_Avg' in df.columns and 'LWout_Avg' in df.columns:
+        lwin = pd.to_numeric(df['LWin_Avg'], errors='coerce')
+        lwout = pd.to_numeric(df['LWout_Avg'], errors='coerce')
+        
+        mask_heating = (lwout > (lwin + 25))
+        
+        if mask_heating.any():
+            col = 'LWin_Avg' # Flagging LWin or LWout? Prompt says "SU if LWout > LWin by (>25)" under LWin row.
+            # Usually flags the radiometer components or both. I'll flag LWin as per prompt row.
+            flag_col = f"{col}_Flag"
+            if flag_col not in df.columns: df[flag_col] = ""
+            
+            print(f"  - {col}: Flagging {mask_heating.sum()} records with 'SU' (Dome Heating)")
+            current_flags = df.loc[mask_heating, flag_col].fillna("").astype(str)
+            new_flags = np.where(current_flags == "", "SU", current_flags + ", SU")
+            df.loc[mask_heating, flag_col] = new_flags
+
+    # 5. SU Flag: Albedo (0.1 < Albedo < 0.95 is normal, outside is SU)
+    # Thresholds T is < 0 OR > 1.
+    # SU is < 0.1 OR > 0.95.
+    if 'SWalbedo_Avg' in df.columns:
+        alb = pd.to_numeric(df['SWalbedo_Avg'], errors='coerce')
+        mask_su = (alb < 0.1) | (alb > 0.95)
+        # However, T flag (<0 or >1) might already be set. SU implies "Possible but Suspicious".
+        # If it's T, it's definitely bad. If it's valid (0-1) but extreme, it's SU.
+        # Ensure we don't overwrite T or flag both if not needed.
+        # But generally SU is additional info.
+        
+        if mask_su.any():
+            col = 'SWalbedo_Avg'
+            flag_col = f"{col}_Flag"
+            if flag_col not in df.columns: df[flag_col] = ""
+            
+            print(f"  - {col}: Flagging {mask_su.sum()} records with 'SU' (Extreme Albedo)")
+            current_flags = df.loc[mask_su, flag_col].fillna("").astype(str)
+            new_flags = np.where(current_flags == "", "SU", current_flags + ", SU")
+            df.loc[mask_su, flag_col] = new_flags
 
     return df
 
