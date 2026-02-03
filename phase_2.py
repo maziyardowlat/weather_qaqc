@@ -24,17 +24,15 @@ THRESHOLDS = {
     'WindDir': (0, 360),
     'AirT_C_Avg': (-50, 60),
     'VP_hPa_Avg': (0, 470),
-    'VP_mbar_Avg': (0, 470), # Alias for backward compatibility
     'BP_hPa_Avg': (850, 1050),
-    'BP_mbar_Avg': (850, 1050), # Alias for backward compatibility
     'RH': (0, 100),
     'TiltNS_deg_Avg': (-3, 3),
     'TiltWE_deg_Avg': (-3, 3),
     'SlrTF_MJ_Tot': (0, 1.215),
-    'DT_Avg': (50, 1000), 
-    'DBTCDT_Avg': (0, 1000), # Placeholder Max, overridden by dynamic logic
+    'DT_Avg': (50, SENSOR_HEIGHT + 5), 
+    'DBTCDT_Avg': (0, SENSOR_HEIGHT + 5),
     'SWin_Avg': (0, 1350),
-    'SWout_Avg': (0, 1350),
+    'SWout_Avg': (0, 'SWin_Avg'),
     'LWin_Avg': (100, 550),
     'LWout_Avg': (150, 600),
     'SWnet_Avg': (0, 1350),
@@ -43,22 +41,16 @@ THRESHOLDS = {
     'NR_Avg': (-200, 1000),
     'stmp_Avg': (-50, 60),
     'gtmp_Avg': (-50, 60), 
-    'TCDT_Avg': (-1000, 1000) 
 }
 
 # Dependency Configuration
-# Target: { source_cols: [], flags: [], output_flag: 'DF'/'SU' }
-# trigger_flags: The flags in the source column that trigger the action
 DEPENDENCY_CONFIG = [
     # ClimaVue50
     {'target': 'SlrFD_W_Avg', 'sources': ['TiltNS_deg_Avg', 'TiltWE_deg_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
     {'target': 'Rain_mm_Tot', 'sources': ['TiltNS_deg_Avg', 'TiltWE_deg_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
     {'target': 'AirT_C_Avg', 'sources': ['SlrFD_W_Avg', 'WS_ms_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
     {'target': 'VP_hPa_Avg', 'sources': ['RHT_C_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
-    {'target': 'VP_mbar_Avg', 'sources': ['RHT_C_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
     {'target': 'RH', 'sources': ['VP_hPa_Avg', 'AirT_C_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
-    {'target': 'RH', 'sources': ['VP_mbar_Avg', 'AirT_C_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
-    
     {'target': 'SlrTF_MJ_Tot', 'sources': ['SlrFD_W_Avg'], 'trigger_flags': ['T', 'ERR', 'Z'], 'set_flag': 'DF'},
     
     # SR50
@@ -77,7 +69,7 @@ DEPENDENCY_CONFIG = [
 
 Add_caution_flag = [
     'BattV_Avg', 'PTemp_C_Avg', 'SlrFD_W_Avg', 'Dist_km_Avg', 'WS_ms_Avg', 
-    'MaxWS_ms_Avg', 'AirT_C_Avg', 'VP_mbar_Avg', 'BP_mbar_Avg', 'RHT_C_Avg', 
+    'MaxWS_ms_Avg', 'AirT_C_Avg', 'VP_hPa_Avg', 'BP_hPa_Avg', 'RHT_C_Avg', 
     'TiltNS_deg_Avg', 'TiltWE_deg_Avg', 'Invalid_Wind_Avg', 'DT_Avg', 
     'TCDT_Avg', 'DBTCDT_Avg', 'SWin_Avg', 'SWout_Avg', 'LWin_Avg', 
     'LWout_Avg', 'SWnet_Avg', 'LWnet_Avg', 'SWalbedo_Avg', 'NR_Avg', 
@@ -85,7 +77,7 @@ Add_caution_flag = [
 ]
 
 SOLAR_COLUMNS = [
-    'SlrFD_W_Avg', 'SWin_Avg', 'SWout_Avg', 'SWnet_Avg', 'SlrTF_MJ_Tot'
+    'SlrFD_W_Avg', 'SWin_Avg'
 ]
 
 def load_data(filepath):
@@ -95,39 +87,23 @@ def load_data(filepath):
     header_df = pd.read_csv(filepath, header=None, nrows=2)
     headers = header_df.iloc[0].tolist()
     units = header_df.iloc[1].tolist()
-    
-    # Read proper data
-    # Row 0 is header, Row 1 is units. So skip=[1] (Units) relative to 0-based index?
-    # pd.read_csv uses 0-based row indices.
-    # header=0 means first row is header.
-    # We want to skip the units row, which is row 1 (the second row).
     df = pd.read_csv(filepath, header=0, skiprows=[1], 
                      na_values=['NAN', '"NAN"', ''], keep_default_na=True, 
                      skipinitialspace=True, low_memory=False)
-    
     return df, headers, units
 
 def apply_uniquecases(df):
-    # Check for 'RECORD' or 'Record' column
-    found_col = None
-    if "RECORD" in df.columns:
-        found_col = "RECORD"
-    elif "Record" in df.columns:
-        found_col = "Record"
-
+    # Checks the record column, and sees logger reset.
+    found_col = "RECORD"
     if found_col:
         col = found_col
-        # Coerce to numeric
         vals = pd.to_numeric(df[col], errors='coerce')
         
-        # Check if previous value is greater than current value (Logger Reset)
-        # diff = current - previous. If diff < 0, then previous > current.
-        # shifting 1 gives the previous value.
+        # get your previous value
         prev_vals = vals.shift(1)
+        # see if your first value is "NaN" or if its missing.
         is_start = vals.shift(1).isna()
-        # Mask where current < previous (Restart)
-        # We also treat 0 as a restart if it's the start (though shift(1) is NaN there)
-        # Correctly grouping (is_start & (vals == 0)) because & has higher precedence than == in some contexts or to be explicit.
+        # Mask where current < previous (Restart) or if the first value is 0.
         mask_restart = (vals < prev_vals) | (is_start & (vals == 0))
         if mask_restart.any():
             flag_col = f"{col}_Flag"
@@ -136,10 +112,13 @@ def apply_uniquecases(df):
 
             print(f"  - {col}: Flagging {mask_restart.sum()} records as 'LR' (Sequence Drop)")
 
+            # Get current flags
             current_flags = df[flag_col].fillna("").astype(str)
+            # Get the rows that need to be flagged
             targets = current_flags.loc[mask_restart]
-            # Add LR flag
+            # Add LR flag, if the flag is empty, add LR, if it has something, add , LR
             new_flags = np.where(targets == "", "LR", targets + ", LR")
+            # Update the flags
             df.loc[mask_restart, flag_col] = new_flags
 
     return df
@@ -153,10 +132,6 @@ def apply_thresholds(df):
             continue
             
         flag_col = f"{col}_Flag"
-        if flag_col not in df.columns:
-            # Should have been created in Phase 1, but create if missing
-            df[flag_col] = ""
-            
         # Create numeric series for comparison, handling non-numerics if any
         vals = pd.to_numeric(df[col], errors='coerce')
         
@@ -173,10 +148,14 @@ def apply_thresholds(df):
         
         # Apply 'T'
         if mask_apply.any():
+            # Count the number of records to be flagged, only for print statement
             count = mask_apply.sum()
             print(f"  - {col}: Flagging {count} records outside [{min_v}, {max_v}]")
+            # Get the rows that need to be flagged
             targets = current_flags.loc[mask_apply]
+            # Add T flag, if the flag is empty, add T, if it has something, add , T
             new_flags = np.where(targets == "", "T", targets + ", T")
+            # Update the flags
             df.loc[mask_apply, flag_col] = new_flags
             
     return df
