@@ -31,11 +31,11 @@ THRESHOLDS = {
     'SlrTF_MJ_Tot': (0, 1.215),
     'DT_Avg': (50, SENSOR_HEIGHT + 5), 
     'DBTCDT_Avg': (0, SENSOR_HEIGHT + 5),
-    'SWin_Avg': (0, 1350),
-    'SWout_Avg': (0, 'SWin_Avg'),
+    'SWin_Avg': (-1, 1350), # changed this from 0 to -1, it seems that at night, SWin is slightly negative (from around 22:00 to 04:45)
+    'SWout_Avg': (-1, 'SWin_Avg'), #changed this from 0 to -1, it seems that at night, SWout is slightly negative (from around 22:00 to 04:45)
     'LWin_Avg': (100, 550),
     'LWout_Avg': (150, 600),
-    'SWnet_Avg': (0, 1350),
+    'SWnet_Avg': (-5, 1350), #changed this from 0 to -5
     'LWnet_Avg': (-300, 100),
     'SWalbedo_Avg': (0, 1),
     'NR_Avg': (-200, 1000),
@@ -212,26 +212,6 @@ def apply_dynamic_thresholds(df):
     has_date = 'TIMESTAMP' in df.columns
     if has_date:
         df['TIMESTAMP'] = pd.to_datetime(df['TIMESTAMP'])
-
-    # 1. Check SWout_Avg > SWin_Avg
-    # NOTE: This is now handled in apply_thresholds via 'SWout_Avg': (0, 'SWin_Avg')
-    # Leaving strict logic commented if needed in future, but preventing double 'T' flags.
-    # if 'SWout_Avg' in df.columns and 'SWin_Avg' in df.columns:
-    #     sw_out = pd.to_numeric(df['SWout_Avg'], errors='coerce')
-    #     sw_in = pd.to_numeric(df['SWin_Avg'], errors='coerce')
-    #     
-    #     mask_fail = (sw_out > sw_in)
-    #     if mask_fail.any():
-    #         col = 'SWout_Avg'
-    #         flag_col = f"{col}_Flag"
-    #         if flag_col not in df.columns: df[flag_col] = ""
-    #         print(f"  - {col}: Flagging {mask_fail.sum()} records > SWin_Avg (M/T check needed?)")
-    #         current_flags = df.loc[mask_fail, flag_col].fillna("").astype(str)
-    #         new_flags = np.where(current_flags == "", "T", current_flags + ", T")
-    #         # df.loc[mask_fail, flag_col] = new_flags
-
-    # 2. Snow Depth Limits & Summer Flag (SF)
-    # Physical Max Snow Depth = H - 50 
     limit = SENSOR_HEIGHT - 50
     
     # T Check for DBTCDT (Snow Depth)
@@ -277,12 +257,11 @@ def apply_dynamic_thresholds(df):
             new_flags = np.where(current_flags == "", "NW", current_flags + ", NW")
             df.loc[mask_calm, flag_col] = new_flags
 
-    # 4. SU Flag: Longwave Difference (LWout > LWin + 25) -> Dome Heating
     if 'LWin_Avg' in df.columns and 'LWout_Avg' in df.columns:
         lwin = pd.to_numeric(df['LWin_Avg'], errors='coerce')
         lwout = pd.to_numeric(df['LWout_Avg'], errors='coerce')
         
-        mask_heating = (lwout > (lwin + 25))
+        mask_heating = ((lwout - lwin) > 25)
         
         if mask_heating.any():
             col = 'LWin_Avg' # Flagging LWin or LWout? Prompt says "SU if LWout > LWin by (>25)" under LWin row.
