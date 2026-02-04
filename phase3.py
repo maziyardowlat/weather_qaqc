@@ -120,9 +120,6 @@ def apply_change_checks(df):
                 
         # 2. Spikes (S) and Jumps (J)
         if max_change is not None:
-            # Spike (S)
-            # Positive: (val - prev > tau) & (val - next > tau)
-            # Negative: (val - prev < -tau) & (val - next < -tau)
             
             mask_s_pos = (diff_prev > max_change) & (diff_next > max_change)
             mask_s_neg = (diff_prev < -max_change) & (diff_next < -max_change)
