@@ -5,8 +5,8 @@ import csv
 from datetime import datetime, timedelta, timezone
 from suntime import Sun
 
-INPUT_FILE = 'data/concatenated_one_year.csv'
-OUTPUT_FILE = 'data/concatenated_one_year_phase2.csv'
+INPUT_FILE = 'data/concatenated_all_years.csv'
+OUTPUT_FILE = 'data/concatenated_all_years_phase2.csv'
 
 # Threshold Configuration {Column: (Min, Max)}
 SENSOR_HEIGHT = 166 # Default Sensor Height in cm (H).
@@ -31,8 +31,8 @@ THRESHOLDS = {
     'SlrTF_MJ_Tot': (0, 1.215),
     'DT_Avg': (50, SENSOR_HEIGHT + 5), 
     'DBTCDT_Avg': (0, SENSOR_HEIGHT + 5),
-    'SWin_Avg': (-1, 1350), # changed this from 0 to -1, it seems that at night, SWin is slightly negative (from around 22:00 to 04:45)
-    'SWout_Avg': (-1, 'SWin_Avg'), #changed this from 0 to -1, it seems that at night, SWout is slightly negative (from around 22:00 to 04:45)
+    'SWin_Avg': (-5, 1350), # changed this from 0 to -1, it seems that at night, SWin is slightly negative (from around 22:00 to 04:45)
+    'SWout_Avg': (0, 'SWin_Avg'), #changed this from 0 to -1, it seems that at night, SWout is slightly negative (from around 22:00 to 04:45)
     'LWin_Avg': (100, 550),
     'LWout_Avg': (150, 600),
     'SWnet_Avg': (-5, 1350), #changed this from 0 to -5
@@ -48,22 +48,28 @@ DEPENDENCY_CONFIG = [
     # ClimaVue50
     {'target': 'SlrFD_W_Avg', 'sources': ['TiltNS_deg_Avg', 'TiltWE_deg_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
     {'target': 'Rain_mm_Tot', 'sources': ['TiltNS_deg_Avg', 'TiltWE_deg_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
-    {'target': 'AirT_C_Avg', 'sources': ['SlrFD_W_Avg', 'WS_ms_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
+    {'target': 'AirT_C_Avg', 'sources': ['SlrFD_W_Avg', 'WS_ms_Avg'], 'trigger_flags': ['T', 'ERR', 'DF'], 'set_flag': 'DF'},
     {'target': 'VP_hPa_Avg', 'sources': ['RHT_C_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
-    {'target': 'RH', 'sources': ['VP_hPa_Avg', 'AirT_C_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
-    {'target': 'SlrTF_MJ_Tot', 'sources': ['SlrFD_W_Avg'], 'trigger_flags': ['T', 'ERR', 'Z'], 'set_flag': 'DF'},
+    {'target': 'RH', 'sources': ['VP_hPa_Avg', 'AirT_C_Avg'], 'trigger_flags': ['T', 'ERR', 'DF'], 'set_flag': 'DF'},
+    {'target': 'SlrTF_MJ_Tot', 'sources': ['SlrFD_W_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
+    {'target': 'SlrTF_MJ_Tot', 'sources': ['SlrFD_W_Avg'], 'trigger_flags': ['Z'], 'set_flag': 'Z'},
     
     # SR50
     {'target': 'TCDT_Avg', 'sources': ['DT_Avg'], 'trigger_flags': ['T'], 'set_flag': 'DF'},
-    {'target': 'TCDT_Avg', 'sources': ['AirT_C_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'SU'},
+    {'target': 'TCDT_Avg', 'sources': ['AirT_C_Avg'], 'trigger_flags': ['T', 'ERR', 'DF'], 'set_flag': 'SU'},
     {'target': 'DBTCDT_Avg', 'sources': ['TCDT_Avg'], 'trigger_flags': ['T'], 'set_flag': 'DF'},
     {'target': 'DBTCDT_Avg', 'sources': ['TCDT_Avg'], 'trigger_flags': ['SU'], 'set_flag': 'SU'},
     
     # Net Radiometer
-    {'target': 'SWnet_Avg', 'sources': ['SWin_Avg', 'SWout_Avg'], 'trigger_flags': ['T', 'ERR', 'Z'], 'set_flag': 'DF'},
+    {'target': 'SWnet_Avg', 'sources': ['SWin_Avg', 'SWout_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
+    {'target': 'SWnet_Avg', 'sources': ['Swing_Avg'], 'trigger_flags': ['Z'], 'set_flag': 'Z'},
+    {'target': 'SWout_Avg', 'sources': ['SWin_Avg'], 'trigger_flags': ['Z'], 'set_flag': 'Z'},
     {'target': 'LWnet_Avg', 'sources': ['LWin_Avg', 'LWout_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
-    {'target': 'SWalbedo_Avg', 'sources': ['SWin_Avg', 'SWout_Avg'], 'trigger_flags': ['T', 'ERR', 'Z'], 'set_flag': 'DF'},
-    {'target': 'NR_Avg', 'sources': ['SWin_Avg', 'SWout_Avg', 'LWin_Avg', 'LWout_Avg'], 'trigger_flags': ['T', 'ERR', 'Z'], 'set_flag': 'DF'},
+    {'target': 'SWalbedo_Avg', 'sources': ['SWin_Avg', 'SWout_Avg'], 'trigger_flags': ['T', 'ERR', 'DF'], 'set_flag': 'DF'},
+    {'target': 'SWalbedo_Avg', 'sources': ['SWin_Avg'], 'trigger_flags': ['Z'], 'set_flag': 'Z'},
+    {'target': 'NR_Avg', 'sources': ['SWin_Avg', 'SWout_Avg', 'LWin_Avg', 'LWout_Avg'], 'trigger_flags': ['T', 'ERR', 'DF'], 'set_flag': 'DF'},
+    {'target': 'NR_Avg', 'sources': ['SWin_Avg'], 'trigger_flags': ['Z'], 'set_flag': 'Z'},
+
 ]
 
 
@@ -227,8 +233,8 @@ def apply_dynamic_thresholds(df):
             current_flags = df.loc[mask_fail, flag_col].fillna("").astype(str)
             new_flags = np.where(current_flags == "", "T", current_flags + ", T")
             df.loc[mask_fail, flag_col] = new_flags
-    
-        # SF Check: Snow Depth > 0 during Jun-Sep
+     
+        # Check to make sure that is betwen two dates than in a month
         if has_date:
             months = df['TIMESTAMP'].dt.month
             mask_summer = months.isin([6, 7, 8, 9])
@@ -256,23 +262,6 @@ def apply_dynamic_thresholds(df):
             current_flags = df.loc[mask_calm, flag_col].fillna("").astype(str)
             new_flags = np.where(current_flags == "", "NW", current_flags + ", NW")
             df.loc[mask_calm, flag_col] = new_flags
-
-    if 'LWin_Avg' in df.columns and 'LWout_Avg' in df.columns:
-        lwin = pd.to_numeric(df['LWin_Avg'], errors='coerce')
-        lwout = pd.to_numeric(df['LWout_Avg'], errors='coerce')
-        
-        mask_heating = ((lwout - lwin) > 25)
-        
-        if mask_heating.any():
-            col = 'LWin_Avg' # Flagging LWin or LWout? Prompt says "SU if LWout > LWin by (>25)" under LWin row.
-            # Usually flags the radiometer components or both. I'll flag LWin as per prompt row.
-            flag_col = f"{col}_Flag"
-            if flag_col not in df.columns: df[flag_col] = ""
-            
-            print(f"  - {col}: Flagging {mask_heating.sum()} records with 'SU' (Dome Heating)")
-            current_flags = df.loc[mask_heating, flag_col].fillna("").astype(str)
-            new_flags = np.where(current_flags == "", "SU", current_flags + ", SU")
-            df.loc[mask_heating, flag_col] = new_flags
 
     # 5. SU Flag: Albedo (0.1 < Albedo < 0.95 is normal, outside is SU)
     # Thresholds T is < 0 OR > 1.
@@ -433,7 +422,10 @@ def apply_nighttime_flags(df):
             continue
 
         # Night Mask: Time < Rise OR Time > Set
-        mask_night_time = (ts_values < rise_naive) | (ts_values > set_naive)
+        # User requested 15 minute padding from both ends (Z flag starts too early/ends too late).
+        # This expands the "Day" window by 15 mins on each side.
+        padding = timedelta(minutes=15)
+        mask_night_time = (ts_values < (rise_naive - padding)) | (ts_values > (set_naive + padding))
         
         # Get indices
         night_index_subset = ts_values[mask_night_time].index

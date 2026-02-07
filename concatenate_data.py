@@ -10,11 +10,16 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 file_2023 = 'data/02FW005_raw_CR350_1379_20231102.csv'
 file_2024 = 'data/02FW005_raw_CR350_1379_20240524.csv'
 file_2025 = 'data/02FW005_raw_CR350_1379_20250521.csv'
-output_file = 'data/concatenated_one_year.csv'
+output_file = 'data/concatenated_all_years.csv'
 duplicate_report_file = 'data/duplicates_report.csv'
-end_date = '2024-07-04 14:00:00'
-
 STATION_ID = "02FW005"
+
+Field_time_in_1 = "2023-11-02 14:33"
+Field_time_out_1 = "2023-11-02 17:00"
+Field_time_in_2 = "2024-05-24 08:19"
+Field_time_out_2 = "2024-05-24 09:10"
+Field_time_in_3 = "2025-05-21 09:48"
+Field_time_out_3 = "2025-05-21 10:55"
 
 # Config: Year -> (Data ID number, raw_file_path)
 year_config = {
@@ -163,10 +168,9 @@ def read_data(year, config_entry):
                      na_values=['NAN', '"NAN"', '', '-7999', '7999'], 
                      keep_default_na=True, skipinitialspace=True, low_memory=False)
     
-    # Robust Filtering with Datetime
+    # robustly parse timestamp
     if 'TIMESTAMP' in df.columns:
         df['TIMESTAMP'] = pd.to_datetime(df['TIMESTAMP'])
-        df = df[df['TIMESTAMP'] <= pd.to_datetime(end_date)]
     
     # 5. Add Metadata Columns
     # Data ID: Just the number (string) as requested
@@ -231,7 +235,7 @@ def main():
         raise ValueError("TIMESTAMP column missing!")
     
     # Already converted in read_data, but good to ensure
-    df_all['TIMESTAMP'] = pd.to_datetime(df_all['TIMESTAMP'])
+    # df_all['TIMESTAMP'] = pd.to_datetime(df_all['TIMESTAMP'])
     df_all = df_all.sort_values('TIMESTAMP')
     
     # Deduplicate
@@ -295,7 +299,43 @@ def main():
             # Set M flag
             mask_nan = df_final[col].isna()
             df_final.loc[mask_nan, flag_col] = "M"
-            
+
+            # Set V flag (Field Visits)
+            # Parse and round field visits
+            # (Ideally define this list outside loop for efficiency, but let's keep it robust and simple here)
+            field_visits = [
+                (Field_time_in_1, Field_time_out_1),
+                (Field_time_in_2, Field_time_out_2),
+                (Field_time_in_3, Field_time_out_3)
+            ]
+
+            for start_str, end_str in field_visits:
+                # Parse
+                try:
+                    t_start = pd.to_datetime(start_str)
+                    t_end = pd.to_datetime(end_str)
+                    
+                    # Round down start to nearest 15T
+                    t_start_rounded = t_start.floor('15T')
+                    
+                    # Round up end to nearest 15T
+                    t_end_rounded = t_end.ceil('15T')
+                    
+                    # Apply mask
+                    mask_visit = (df_final['TIMESTAMP'] >= t_start_rounded) & (df_final['TIMESTAMP'] <= t_end_rounded)
+                    
+                    # Append V flag instead of overwriting
+                    # Identify rows with existing flags (e.g. "M") within the mask
+                    mask_existing = mask_visit & (df_final[flag_col] != "")
+                    df_final.loc[mask_existing, flag_col] = df_final.loc[mask_existing, flag_col] + ", V"
+                    
+                    # Identify rows with empty flags within the mask
+                    mask_empty = mask_visit & (df_final[flag_col] == "")
+                    df_final.loc[mask_empty, flag_col] = "V"
+                        
+                except Exception as e:
+                    print(f"Warning: Could not process field visit time {start_str}-{end_str}: {e}")
+                
             # Add headers for flag col
             row_headers.append(flag_col)
             row_units.append("") 
