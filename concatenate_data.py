@@ -2,6 +2,7 @@ import pandas as pd
 import os
 import csv
 import warnings
+import numpy as np
 
 # Suppress ffill/bfill warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -281,6 +282,11 @@ def main():
     row_units = []   # Row 2
 
     for col in df_final.columns:
+        if col == 'CVMeta':
+            continue
+        if col == "Invalid_Wind_Avg":
+            continue
+
         cols_to_write.append(col)
         row_headers.append(col)
         
@@ -296,9 +302,45 @@ def main():
             df_final[flag_col] = ""
             cols_to_write.append(flag_col)
             
+            # Set ERR flag logic
+            # We want to flag ANY value that is present but not a valid number (INF, text, etc) as ERR
+            # 1. Convert to numeric, coercing errors to NaN
+            # Keep original to check what was there before
+            original_series = df_final[col].copy()
+            numeric_series = pd.to_numeric(df_final[col], errors='coerce')
+            
+            # 2. Identify values that became NaN but were NOT NaN/empty originally
+            # These are "bad values" (Text, INF, Name?, etc.)
+            # Note: pd.to_numeric handles "INF" by default depending on version, 
+            # so we might need to explicitly check infinite if it doesn't coerce them to NaN.
+            # But usually we want INF to be NaN + ERR too.
+            
+            # Check for infinity in the numeric series (if it wasn't coerced)
+            is_infinite = np.isinf(numeric_series)
+            
+            # Check for coercion failures (was valid-ish string, became NaN)
+            # We need to be careful with empty strings being "NaN" in pandas read_csv
+            # If it was already NaN, it's Missing (M), not Error.
+            was_not_nan = original_series.notna() & (original_series != "")
+            became_nan = numeric_series.isna()
+            
+            # ERR condition: (Is Infinite) OR (Was Not NaN AND Became NaN when coerced)
+            mask_err = is_infinite | (was_not_nan & became_nan)
+            
+            if mask_err.any():
+                df_final.loc[mask_err, flag_col] = "ERR"
+                # Standardize to NaN
+                numeric_series[mask_err] = np.nan
+            
+            # Apply the numeric series to the dataframe
+            df_final[col] = numeric_series
+
             # Set M flag
+            # Only apply M to NaNs that are NOT already flagged as ERR
             mask_nan = df_final[col].isna()
-            df_final.loc[mask_nan, flag_col] = "M"
+            # If it's NaN now, and NOT ERR, then it's Missing
+            mask_m = mask_nan & (df_final[flag_col] != "ERR")
+            df_final.loc[mask_m, flag_col] = "M"
 
             # Set V flag (Field Visits)
             # Parse and round field visits

@@ -5,8 +5,8 @@ import csv
 from datetime import datetime
 
 # Input/Output
-INPUT_FILE = 'data/concatenated_one_year_phase2.csv'
-OUTPUT_FILE = 'data/concatenated_one_year_phase3.csv'
+INPUT_FILE = 'data/concatenated_all_years_phase2.csv'
+OUTPUT_FILE = 'data/concatenated_all_years_phase3.csv'
 
 # Configuration Dictionary
 # max_change (Tau) and no_change (NC steps)
@@ -19,7 +19,7 @@ QAQC_CONFIG = [
     {'column': 'RHT_C_Avg', 'max_change': 5, 'no_change': 4}, 
     {'column': 'SlrFD_W_Avg', 'max_change': None, 'no_change': None},
     {'column': 'Rain_mm_Tot', 'max_change': 20, 'no_change': None}, 
-    {'column': 'Strikes_tot', 'max_change': None, 'no_change': None},
+    {'column': 'Strikes_Tot', 'max_change': None, 'no_change': None},
     {'column': 'Dist_km_Avg', 'max_change': None, 'no_change': None},
     {'column': 'WS_ms_Avg', 'max_change': None, 'no_change': 10},
     {'column': 'WindDir', 'max_change': None, 'no_change': 10},
@@ -137,6 +137,31 @@ def apply_change_checks(df):
                 # Note: S implies J usually, but J tracks basic rate of change violation
                 # print(f"  - {col}: Flagging {mask_j.sum()} records as 'J'")
                 df = append_flag(df, mask_j, flag_col, 'J')
+        
+        
+    # 3. Pass (P) Flagging - Universal for ALL columns with a corresponding Flag column
+    print("Applying Universal Pass (P) flags...")
+    for col in df.columns:
+        if col.endswith("_Flag"):
+            data_col = col[:-5] # remove '_Flag' suffix
+            if data_col in df.columns:
+                # Ensure we treat NaN/None as empty string for checking flags
+                current_flags = df[col].fillna("").astype(str).str.strip()
+                # Treat "nan" text as empty too just in case
+                current_flags = current_flags.replace('nan', '')
+                
+                # Check if data exists in the data column (not NaN)
+                # We use pd.to_numeric with coerce to handle potential mixed types, 
+                # but fall back to notna() if it's non-numeric data that shouldn't be coerced.
+                # Here, we assume if it's not null, it's valid data.
+                data_vals = df[data_col]
+                
+                # Condition: No existing flag AND Data is present
+                mask_p = (current_flags == "") & (data_vals.notna()) & (data_vals.astype(str).str.strip() != '') & (data_vals.astype(str).str.lower() != 'nan')
+                
+                if mask_p.any():
+                    # print(f"  - {data_col}: Flagging {mask_p.sum()} records as 'P'")
+                    df.loc[mask_p, col] = 'P'
 
     return df
 

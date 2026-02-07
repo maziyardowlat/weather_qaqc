@@ -18,7 +18,7 @@ THRESHOLDS = {
     'RHT_C_Avg': (-40, 50),
     'SlrFD_W_Avg': (0, 1350),
     'Rain_mm_Tot': (0, 33),
-    'Strikes_tot': (0, 66635),
+    'Strikes_Tot': (0, 66635),
     'Dist_km_Avg': (0, 40),
     'WS_ms_Avg': (0, 30),
     'WindDir': (0, 360),
@@ -62,7 +62,7 @@ DEPENDENCY_CONFIG = [
     
     # Net Radiometer
     {'target': 'SWnet_Avg', 'sources': ['SWin_Avg', 'SWout_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
-    {'target': 'SWnet_Avg', 'sources': ['Swing_Avg'], 'trigger_flags': ['Z'], 'set_flag': 'Z'},
+    {'target': 'SWnet_Avg', 'sources': ['SWin_Avg'], 'trigger_flags': ['Z'], 'set_flag': 'Z'},
     {'target': 'SWout_Avg', 'sources': ['SWin_Avg'], 'trigger_flags': ['Z'], 'set_flag': 'Z'},
     {'target': 'LWnet_Avg', 'sources': ['LWin_Avg', 'LWout_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
     {'target': 'SWalbedo_Avg', 'sources': ['SWin_Avg', 'SWout_Avg'], 'trigger_flags': ['T', 'ERR', 'DF'], 'set_flag': 'DF'},
