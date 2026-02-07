@@ -45,7 +45,7 @@ QAQC_CONFIG = [
     {'column': 'NR_Avg', 'max_change': None, 'no_change': None},
     # Ground Thermistors
     {'column': 'stmp_Avg', 'max_change': 5, 'no_change': 4},
-    {'column': 'gtmp_Avg', 'max_change': 5, 'no_change': 4},
+    {'column': 'gtmp_Avg', 'max_change': 5, 'no_change': 10},
 ]
 
 def load_data(filepath):
