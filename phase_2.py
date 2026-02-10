@@ -26,16 +26,18 @@ THRESHOLDS = {
     'VP_hPa_Avg': (0, 470),
     'BP_hPa_Avg': (850, 1050),
     'RH': (0, 100),
-    'TiltNS_deg_Avg': (-3, 3),
-    'TiltWE_deg_Avg': (-3, 3),
+    # Tilt flags moved to dynamic thresholds logic 
     'SlrTF_MJ_Tot': (0, 1.215),
     'DT_Avg': (50, SENSOR_HEIGHT + 5), 
     'DBTCDT_Avg': (0, SENSOR_HEIGHT + 5),
-    'SWin_Avg': (-5, 1350), # changed this from 0 to -1, it seems that at night, SWin is slightly negative (from around 22:00 to 04:45)
+    # make Swin to be 0
+    'SWin_Avg': (0, 1350), # changed this from 0 to -1, it seems that at night, SWin is slightly negative (from around 22:00 to 04:45)
+    # make this also 0
     'SWout_Avg': (0, 'SWin_Avg'), #changed this from 0 to -1, it seems that at night, SWout is slightly negative (from around 22:00 to 04:45)
     'LWin_Avg': (100, 550),
     'LWout_Avg': (150, 600),
-    'SWnet_Avg': (-5, 1350), #changed this from 0 to -5
+    # make this 0, stephen confirm,
+    'SWnet_Avg': (0, 1350), #changed this from 0 to -5
     'LWnet_Avg': (-300, 100),
     'SWalbedo_Avg': (0, 1),
     'NR_Avg': (-200, 1000),
@@ -69,7 +71,6 @@ DEPENDENCY_CONFIG = [
     {'target': 'SWalbedo_Avg', 'sources': ['SWin_Avg'], 'trigger_flags': ['Z'], 'set_flag': 'Z'},
     {'target': 'NR_Avg', 'sources': ['SWin_Avg', 'SWout_Avg', 'LWin_Avg', 'LWout_Avg'], 'trigger_flags': ['T', 'ERR', 'DF'], 'set_flag': 'DF'},
     {'target': 'NR_Avg', 'sources': ['SWin_Avg'], 'trigger_flags': ['Z'], 'set_flag': 'Z'},
-
 ]
 
 
@@ -235,6 +236,7 @@ def apply_dynamic_thresholds(df):
             df.loc[mask_fail, flag_col] = new_flags
      
         # Check to make sure that is betwen two dates than in a month
+        # looking at months is ok
         if has_date:
             months = df['TIMESTAMP'].dt.month
             mask_summer = months.isin([6, 7, 8, 9])
@@ -275,10 +277,41 @@ def apply_dynamic_thresholds(df):
             flag_col = f"{col}_Flag"
             if flag_col not in df.columns: df[flag_col] = ""
             
+    
             print(f"  - {col}: Flagging {mask_su.sum()} records with 'SU' (Extreme Albedo)")
             current_flags = df.loc[mask_su, flag_col].fillna("").astype(str)
             new_flags = np.where(current_flags == "", "SU", current_flags + ", SU")
             df.loc[mask_su, flag_col] = new_flags
+
+    # 6. Tilt Checks (Moved from static thresholds)
+    # T Flag if |val| > 10
+    # SU Flag if |val| > 3 (and <= 10)
+    tilt_cols = ['TiltNS_deg_Avg', 'TiltWE_deg_Avg']
+    for col in tilt_cols:
+        if col in df.columns:
+            vals = pd.to_numeric(df[col], errors='coerce')
+            
+            # T Flag (> 10 or < -10)
+            mask_t = (vals.abs() > 10)
+            if mask_t.any():
+                flag_col = f"{col}_Flag"
+                if flag_col not in df.columns: df[flag_col] = ""
+                
+                print(f"  - {col}: Flagging {mask_t.sum()} records with 'T' (Tilt > 10)")
+                current_flags = df.loc[mask_t, flag_col].fillna("").astype(str)
+                new_flags = np.where(current_flags == "", "T", current_flags + ", T")
+                df.loc[mask_t, flag_col] = new_flags
+                
+            # SU Flag (3 < |val| <= 10)
+            mask_su = (vals.abs() > 3) & (vals.abs() <= 10)
+            if mask_su.any():
+                flag_col = f"{col}_Flag"
+                if flag_col not in df.columns: df[flag_col] = ""
+                
+                print(f"  - {col}: Flagging {mask_su.sum()} records with 'SU' (Tilt > 3)")
+                current_flags = df.loc[mask_su, flag_col].fillna("").astype(str)
+                new_flags = np.where(current_flags == "", "SU", current_flags + ", SU")
+                df.loc[mask_su, flag_col] = new_flags
 
     return df
 
@@ -358,7 +391,34 @@ def apply_dependencies(df):
             
     return df
 
-    
+def apply_pass_flags(df):
+    print("Applying Universal Pass (P) flags...")
+    for col in df.columns:
+        if col.endswith("_Flag"):
+            data_col = col[:-5] # remove '_Flag' suffix
+            if data_col in df.columns:
+                # Ensure we treat NaN/None as empty string for checking flags
+                current_flags = df[col].fillna("").astype(str).str.strip()
+                # Treat "nan" text as empty too just in case
+                # clean potentially "nan" strings if they exist as string 'nan'
+                current_flags = current_flags.replace('nan', '')
+                
+                # Check if data exists in the data column (not NaN)
+                data_vals = df[data_col]
+                
+                # Condition 1: No existing flag (flag is empty string)
+                # Condition 2: Data is present (not NA, not empty string, not 'nan' string)
+                # We do strict checking to avoid flagging missing data as P
+                mask_p = (current_flags == "") & \
+                         (data_vals.notna()) & \
+                         (data_vals.astype(str).str.strip() != '') & \
+                         (data_vals.astype(str).str.lower() != 'nan')
+                
+                if mask_p.any():
+                    # This assigns 'P' to the rows where no other flag exists and valid data is present
+                    df.loc[mask_p, col] = 'P'
+    return df
+
 def apply_nighttime_flags(df):
     print("Applying Nighttime 'Z' Flags for Solar Data...")
     latitude = 53.7217
@@ -485,6 +545,9 @@ def main():
 
     # 6. Apply Dependencies (Checks T, ERR, Z set above)
     df = apply_dependencies(df)
+
+    # 7. Apply Pass (P) Flags (After all other flags are set)
+    df = apply_pass_flags(df)
     
     # 4. Cleanup Flags (Ensure empty flags are "" not NaN)
     flag_cols = [c for c in df.columns if c.endswith("_Flag")]
