@@ -193,6 +193,48 @@ def process_file_data(uploaded_file, mapping, metadata, data_id, station_id):
         st.error(f"Error processing file {uploaded_file.name}: {e}")
         return pd.DataFrame()
 
+def write_csv_with_units(df, save_path):
+    """
+    Writes DataFrame to CSV with a second row containing units.
+    Units are looked up from column_mapping.json.
+    """
+    # Helper to load mapping
+    mapping = load_mapping()
+    
+    import csv
+    with open(save_path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        # 1. Header
+        writer.writerow(df.columns)
+        
+        # 2. Units
+        units_row = []
+        for col in df.columns:
+            unit_val = "nan" # Default
+            
+            if col == 'TIMESTAMP': 
+                unit_val = 'TS'
+            elif col == 'RECORD': 
+                unit_val = 'RN'
+            elif col.endswith('_Flag'): 
+                unit_val = 'nan'
+            else:
+                # Lookup in mapping
+                if col in mapping:
+                    info = mapping[col]
+                    if isinstance(info, dict):
+                        unit_val = info.get('unit', 'nan')
+                        # If blank in JSON, use nan or empty? User sample had 'nan' for flags.
+                        # Let's align with observed data "TS,RN,nan,Volts..."
+                        if unit_val == "": unit_val = "nan"
+            
+            units_row.append(unit_val)
+        
+        writer.writerow(units_row)
+        
+    # 3. Data
+    df.to_csv(save_path, mode='a', header=False, index=False, na_rep='NaN')
+
 # --- Main App ---
 
 def main():
@@ -506,8 +548,8 @@ def main():
                             filename = f"{station_name}_concatenated_tidy.csv"
                             save_path = os.path.join(output_dir, filename)
                             
-                            # Custom To_CSV to handle NaN -> 'NaN'
-                            df_final.to_csv(save_path, index=False, na_rep='NaN')
+                            # Use helper to include units row
+                            write_csv_with_units(df_final, save_path)
                             
                             st.success(f"Successfully processed {len(df_final)} records!")
                             st.success(f"Saved to: {save_path}")
@@ -787,6 +829,14 @@ def main():
                     try:
                         # Load
                         df_qc = pd.read_csv(f_path, low_memory=False)
+                        
+                        # Handle Units Row (if present)
+                        # Check if first row is units (e.g. TIMESTAMP is 'TS')
+                        if not df_qc.empty and 'TIMESTAMP' in df_qc.columns:
+                            first_val = str(df_qc.iloc[0]['TIMESTAMP'])
+                            if first_val == 'TS':
+                                df_qc = df_qc.iloc[1:].reset_index(drop=True)
+                                
                         if 'TIMESTAMP' in df_qc.columns:
                             df_qc['TIMESTAMP'] = pd.to_datetime(df_qc['TIMESTAMP'])
 
@@ -829,7 +879,9 @@ def main():
                              out_name = selected_file.replace(".csv", "_QC.csv")
 
                         save_path = os.path.join(output_dir, out_name)
-                        df_qc.to_csv(save_path, index=False, na_rep='NaN')
+                        
+                        # Use helper to include units row
+                        write_csv_with_units(df_qc, save_path)
 
                         st.success("QA/QC Complete!")
                         st.success(f"Saved to: {save_path}")
