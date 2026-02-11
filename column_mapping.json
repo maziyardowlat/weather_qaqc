@@ -7,7 +7,11 @@
             "Battery_Voltage",
             "BattV_Avg"
         ],
-        "unit": "Volts"
+        "unit": "Volts",
+        "unit_aliases": [
+            "Volts",
+            "V"
+        ]
     },
     "PTemp_C_Avg": {
         "aliases": [
@@ -17,7 +21,12 @@
             "PTemp_C",
             "PTemp_C_Avg"
         ],
-        "unit": "Deg C"
+        "unit": "Deg C",
+        "unit_aliases": [
+            "Deg C",
+            "C",
+            "degC"
+        ]
     },
     "stmp_Avg": {
         "aliases": [
@@ -26,7 +35,12 @@
             "SoilTemp_1",
             "stmp_Avg"
         ],
-        "unit": "Deg C"
+        "unit": "Deg C",
+        "unit_aliases": [
+            "Deg C",
+            "C",
+            "degC"
+        ]
     },
     "SlrFD_W_Avg": {
         "aliases": [
@@ -35,7 +49,11 @@
             "Solar_W",
             "SlrFD_W_Avg"
         ],
-        "unit": "W/m^2"
+        "unit": "W/m^2",
+        "unit_aliases": [
+            "W/m^2",
+            "Watts/meter^2"
+        ]
     },
     "Rain_mm_Tot": {
         "aliases": [
@@ -44,7 +62,11 @@
             "Rain_Tot",
             "Rain_mm_Tot"
         ],
-        "unit": "mm"
+        "unit": "mm",
+        "unit_aliases": [
+            "mm",
+            "millimeters"
+        ]
     },
     "Strikes_Tot": {
         "aliases": [
@@ -52,7 +74,11 @@
             "Lightning_Strikes",
             "Strikes_Tot"
         ],
-        "unit": "count"
+        "unit": "count",
+        "unit_aliases": [
+            "count",
+            "strikes"
+        ]
     },
     "Dist_km_Avg": {
         "aliases": [
@@ -60,7 +86,11 @@
             "Lightning_Dist",
             "Dist_km_Avg"
         ],
-        "unit": "kilometers"
+        "unit": "kilometers",
+        "unit_aliases": [
+            "kilometers",
+            "km"
+        ]
     },
     "WS_ms_Avg": {
         "aliases": [
@@ -69,7 +99,11 @@
             "Wind_Speed",
             "WS_ms_Avg"
         ],
-        "unit": "meters/second"
+        "unit": "meters/second",
+        "unit_aliases": [
+            "meters/second",
+            "m/s"
+        ]
     },
     "WindDir": {
         "aliases": [
@@ -77,7 +111,11 @@
             "Wind_Dir",
             "WindDir"
         ],
-        "unit": "degrees"
+        "unit": "degrees",
+        "unit_aliases": [
+            "degrees",
+            "deg"
+        ]
     },
     "MaxWS_ms_Avg": {
         "aliases": [
@@ -86,7 +124,11 @@
             "Max_Wind_Speed",
             "MaxWS_ms_Avg"
         ],
-        "unit": "meters/second"
+        "unit": "meters/second",
+        "unit_aliases": [
+            "meters/second",
+            "m/s"
+        ]
     },
     "AirT_C_Avg": {
         "aliases": [
@@ -95,7 +137,12 @@
             "AirTemp",
             "AirT_C_Avg"
         ],
-        "unit": "Deg C"
+        "unit": "Deg C",
+        "unit_aliases": [
+            "Deg C",
+            "C",
+            "degC"
+        ]
     },
     "VP_hPa_Avg": {
         "aliases": [
@@ -105,7 +152,12 @@
             "VP_hPa_Avg",
             "VP_mbar_Avg"
         ],
-        "unit": "hPa"
+        "unit": "hPa",
+        "unit_aliases": [
+            "hPa",
+            "mbar",
+            "millibars"
+        ]
     },
     "BP_hPa_Avg": {
         "aliases": [
@@ -115,7 +167,12 @@
             "BP_hPa_Avg",
             "BP_mbar_Avg"
         ],
-        "unit": "hPa"
+        "unit": "hPa",
+        "unit_aliases": [
+            "hPa",
+            "mbar",
+            "millibars"
+        ]
     },
     "RH": {
         "aliases": [
@@ -123,7 +180,11 @@
             "RelHum",
             "RH"
         ],
-        "unit": "%"
+        "unit": "%",
+        "unit_aliases": [
+            "%",
+            "percent"
+        ]
     },
     "RHT_C_Avg": {
         "aliases": [
@@ -131,7 +192,12 @@
             "RH_Temp",
             "RHT_C_Avg"
         ],
-        "unit": "Deg C"
+        "unit": "Deg C",
+        "unit_aliases": [
+            "Deg C",
+            "C",
+            "degC"
+        ]
     },
     "TiltNS_deg_Avg": {
         "aliases": [
@@ -139,7 +205,11 @@
             "Tilt_NS",
             "TiltNS_deg_Avg"
         ],
-        "unit": "degrees"
+        "unit": "degrees",
+        "unit_aliases": [
+            "degrees",
+            "deg"
+        ]
     },
     "TiltWE_deg_Avg": {
         "aliases": [
@@ -147,7 +217,11 @@
             "Tilt_WE",
             "TiltWE_deg_Avg"
         ],
-        "unit": "degrees"
+        "unit": "degrees",
+        "unit_aliases": [
+            "degrees",
+            "deg"
+        ]
     },
     "SlrTF_MJ_Tot": {
         "aliases": [
@@ -156,14 +230,18 @@
             "Solar_MJ",
             "SlrTF_MJ_Tot"
         ],
-        "unit": "MJ/m^2"
+        "unit": "MJ/m^2",
+        "unit_aliases": [
+            "MJ/m^2"
+        ]
     },
     "Invalid_Wind_Avg": {
         "aliases": [
             "Invalid_Wind",
             "Invalid_Wind_Avg"
         ],
-        "unit": ""
+        "unit": "",
+        "unit_aliases": []
     },
     "DT_Avg": {
         "aliases": [
@@ -171,7 +249,8 @@
             "Distance_Target",
             "DT_Avg"
         ],
-        "unit": ""
+        "unit": "",
+        "unit_aliases": []
     },
     "TCDT_Avg": {
         "aliases": [
@@ -179,7 +258,8 @@
             "Target_Corrected_Dist",
             "TCDT_Avg"
         ],
-        "unit": ""
+        "unit": "",
+        "unit_aliases": []
     },
     "DBTCDT_Avg": {
         "aliases": [
@@ -187,7 +267,8 @@
             "Snow_Depth",
             "DBTCDT_Avg"
         ],
-        "unit": ""
+        "unit": "",
+        "unit_aliases": []
     },
     "SWin_Avg": {
         "aliases": [
@@ -195,7 +276,10 @@
             "ShortWave_In",
             "SWin_Avg"
         ],
-        "unit": "W/m^2"
+        "unit": "W/m^2",
+        "unit_aliases": [
+            "W/m^2"
+        ]
     },
     "SWout_Avg": {
         "aliases": [
@@ -203,7 +287,10 @@
             "ShortWave_Out",
             "SWout_Avg"
         ],
-        "unit": "W/m^2"
+        "unit": "W/m^2",
+        "unit_aliases": [
+            "W/m^2"
+        ]
     },
     "LWin_Avg": {
         "aliases": [
@@ -211,7 +298,10 @@
             "LongWave_In",
             "LWin_Avg"
         ],
-        "unit": "W/m^2"
+        "unit": "W/m^2",
+        "unit_aliases": [
+            "W/m^2"
+        ]
     },
     "LWout_Avg": {
         "aliases": [
@@ -219,7 +309,10 @@
             "LongWave_Out",
             "LWout_Avg"
         ],
-        "unit": "W/m^2"
+        "unit": "W/m^2",
+        "unit_aliases": [
+            "W/m^2"
+        ]
     },
     "SWnet_Avg": {
         "aliases": [
@@ -227,7 +320,10 @@
             "ShortWave_Net",
             "SWnet_Avg"
         ],
-        "unit": "W/m^2"
+        "unit": "W/m^2",
+        "unit_aliases": [
+            "W/m^2"
+        ]
     },
     "LWnet_Avg": {
         "aliases": [
@@ -235,7 +331,10 @@
             "LongWave_Net",
             "LWnet_Avg"
         ],
-        "unit": "W/m^2"
+        "unit": "W/m^2",
+        "unit_aliases": [
+            "W/m^2"
+        ]
     },
     "SWalbedo_Avg": {
         "aliases": [
@@ -243,7 +342,10 @@
             "Albedo",
             "SWalbedo_Avg"
         ],
-        "unit": "W/m^2"
+        "unit": "W/m^2",
+        "unit_aliases": [
+            "W/m^2"
+        ]
     },
     "NR_Avg": {
         "aliases": [
@@ -251,7 +353,10 @@
             "Net_Radiation",
             "NR_Avg"
         ],
-        "unit": "W/m^2"
+        "unit": "W/m^2",
+        "unit_aliases": [
+            "W/m^2"
+        ]
     },
     "gtmp_Avg": {
         "aliases": [
@@ -259,6 +364,20 @@
             "Ground_Temp",
             "gtmp_Avg"
         ],
-        "unit": "Deg C"
+        "unit": "Deg C",
+        "unit_aliases": [
+            "Deg C",
+            "C",
+            "degC"
+        ]
+    },
+    "asdf": {
+        "aliases": [
+            "asdfacdscsda"
+        ],
+        "unit": "adc",
+        "unit_aliases": [
+            "asdf"
+        ]
     }
 }

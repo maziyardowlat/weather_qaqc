@@ -13,6 +13,11 @@ try:
 except ImportError:
     Sun = None # Handle missing dependency gracefully
 
+try:
+    from pypdf import PdfReader
+except ImportError:
+    PdfReader = None
+
 
 # Page Config
 st.set_page_config(page_title="NHG Weather Pipeline", layout="wide")
@@ -147,6 +152,61 @@ def load_csv_preview(file):
     except Exception as e:
         return None
 
+def parse_field_report(pdf_file):
+    """
+    Parses a Field Report PDF to extract Date, Time-in, and Time-out.
+    Expects formats like:
+    Date YYYY-MM-DD
+    Time-in HH:MM ...
+    Time-out HH:MM ...
+    
+    Returns a dict with 'field_in', 'field_out' found strings or None.
+    """
+    if not PdfReader:
+        st.error("pypdf not installed. Cannot parse PDF.")
+        return {}
+
+    parsed_data = {}
+    
+    try:
+        reader = PdfReader(pdf_file)
+        full_text = ""
+        
+        # Read all pages (usually short reports) to be safe
+        for page in reader.pages:
+            full_text += page.extract_text() + "\n"
+            
+        import re
+        
+        # 1. Extract Date
+        # Pattern: Date YYYY-MM-DD
+        date_match = re.search(r'Date\s+(\d{4}-\d{2}-\d{2})', full_text)
+        report_date = date_match.group(1) if date_match else None
+        
+        # 2. Extract Time-in
+        # Pattern: Time-in HH:MM (ignore rest)
+        in_match = re.search(r'Time-in\s+(\d{1,2}:\d{2})', full_text)
+        time_in = in_match.group(1) if in_match else None
+        
+        # 3. Extract Time-out
+        # Pattern: Time-out HH:MM
+        out_match = re.search(r'Time-out\s+(\d{1,2}:\d{2})', full_text)
+        time_out = out_match.group(1) if out_match else None
+        
+        if report_date and time_in:
+            parsed_data['field_in'] = f"{report_date} {time_in}"
+            
+        if report_date and time_out:
+            parsed_data['field_out'] = f"{report_date} {time_out}"
+            
+    except Exception as e:
+        st.warning(f"Error parsing PDF: {e}")
+        
+    finally:
+        pdf_file.seek(0)
+        
+    return parsed_data
+
 def process_file_data(uploaded_file, mapping, metadata, data_id, station_id):
     """
     Reads the full CSV, applies mapping, adds metadata columns.
@@ -235,6 +295,109 @@ def write_csv_with_units(df, save_path):
     # 3. Data
     df.to_csv(save_path, mode='a', header=False, index=False, na_rep='NaN')
 
+# --- UI Components ---
+
+def mapping_editor_ui():
+    """
+    UI for editing the column mapping JSON using a table editor.
+    """
+    st.write("Edit the column mapping configuration below.")
+    st.info("💡 **Tips:**\n- **Aliases**: Separate multiple values with a comma (e.g. `battv, BattV`).\n- **Add Row**: Click the `+` at the bottom to add a new variable.\n- **Remove Row**: Select rows and press `Delete`.")
+    
+    current_mapping = load_mapping()
+    
+    # 1. FLATTEN: Convert JSON Dict -> List of Dicts for DataFrame
+    # Structure: Variable Name | Unit | Aliases (str) | Unit Aliases (str)
+    table_data = []
+    
+    for var_name, info in current_mapping.items():
+        # Handle cases where info might be malformed (though unlikely with our control)
+        if not isinstance(info, dict): continue
+        
+        aliases_list = info.get('aliases', [])
+        unit = info.get('unit', '')
+        unit_aliases_list = info.get('unit_aliases', [])
+        
+        # Convert lists to comma-separated strings for easy editing
+        aliases_str = ", ".join([str(a) for a in aliases_list])
+        unit_aliases_str = ", ".join([str(ua) for ua in unit_aliases_list])
+        
+        table_data.append({
+            "Variable Name": var_name,
+            "Unit": unit,
+            "Aliases": aliases_str,
+            "Unit Aliases": unit_aliases_str
+        })
+        
+    # Create DataFrame
+    df = pd.DataFrame(table_data)
+    
+    # 2. EDIT: Show Data Editor
+    # num_rows="dynamic" allows adding/deleting rows
+    edited_df = st.data_editor(
+        df, 
+        num_rows="dynamic", 
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Variable Name": st.column_config.TextColumn("Variable Name", required=True, help="Canonical name of the variable (e.g. BattV_Avg)"),
+            "Unit": st.column_config.TextColumn("Unit", help="Canonical unit (e.g. Volts)"),
+            "Aliases": st.column_config.TextColumn("Aliases", help="Comma-separated list of alternative names found in raw files"),
+            "Unit Aliases": st.column_config.TextColumn("Unit Aliases", help="Comma-separated list of alternative units found in raw files"),
+        }
+    )
+    
+    # 3. SAVE: Parse back to JSON
+    if st.button("Save Changes"):
+        try:
+            new_mapping = {}
+            for index, row in edited_df.iterrows():
+                var_name = str(row.get("Variable Name", "")).strip()
+                if not var_name: 
+                    continue # Skip empty variable names
+                
+                # Parse Aliases
+                aliases_raw = str(row.get("Aliases", ""))
+                aliases = [a.strip() for a in aliases_raw.split(',') if a.strip()]
+                
+                # Parse Unit Aliases
+                unit_aliases_raw = str(row.get("Unit Aliases", ""))
+                unit_aliases = [ua.strip() for ua in unit_aliases_raw.split(',') if ua.strip()]
+                
+                unit = str(row.get("Unit", "")).strip()
+                
+                new_mapping[var_name] = {
+                    "aliases": aliases,
+                    "unit": unit,
+                    "unit_aliases": unit_aliases
+                }
+                
+            # Check if empty (safety check)
+            if not new_mapping:
+                st.warning("Mapping is empty. Are you sure?")
+                if not st.button("Confirm Empty Save"):
+                    return
+            
+            save_mapping(new_mapping)
+            st.success("Configuration saved successfully!")
+            st.rerun()
+            
+        except Exception as e:
+            st.error(f"Error saving configuration: {e}")
+
+# Check for st.dialog support (Streamlit >= 1.34.0)
+if hasattr(st, "dialog"):
+    @st.dialog("Global Settings: Column Mapping", width="large")
+    def mapping_editor_dialog():
+        mapping_editor_ui()
+else:
+    def mapping_editor_dialog():
+        # Fallback for older Streamlit
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("Edit Column Mapping")
+        with st.sidebar.expander("Show Editor", expanded=True):
+             mapping_editor_ui()
+
 # --- Main App ---
 
 def main():
@@ -242,8 +405,21 @@ def main():
 
     # --- Sidebar ---
     st.sidebar.header("Global Settings")
+    
+    # Column Mapping Editor Button
+    if hasattr(st, "dialog"):
+        if st.sidebar.button("Edit Column Mapping"):
+            mapping_editor_dialog()
+    else:
+        # For fallback, we might just show it inline or use checkbox/expander logic
+        # But for simplicity in fallback, let's just show the expander if they want
+        mapping_editor_dialog()
+
+    st.sidebar.divider()
+
     station_name = st.sidebar.text_input("Station Name", value="Station_Name")
     output_dir = st.sidebar.text_input("Output Directory", value="data")
+    sensor_height = st.sidebar.number_input("Sensor Height (cm)", value=166)
     
     if not os.path.exists(output_dir):
         os.makedirs(output_dir, exist_ok=True)
@@ -292,11 +468,28 @@ def main():
 
                     # Field Visits (Optional)
                     st.caption("Field Visit (Optional - Leave blank if none)")
+                    
+                    # PDF Uploader for Auto-fill
+                    fv_pdf = st.file_uploader("Upload Field Report (PDF) to Auto-fill", type=["pdf"], key=f"fv_pdf_{i}")
+                    
+                    default_in = ""
+                    default_out = ""
+                    
+                    if fv_pdf:
+                        parsed = parse_field_report(fv_pdf)
+                        if parsed.get('field_in'):
+                            default_in = parsed['field_in']
+                            st.success(f"Found Field In: {default_in}")
+                        if parsed.get('field_out'):
+                            default_out = parsed['field_out']
+                            st.success(f"Found Field Out: {default_out}")
+                            
                     fv_col1, fv_col2 = st.columns(2)
                     with fv_col1:
-                        fv_in = st.text_input("Field In (YYYY-MM-DD HH:MM)", key=f"fi_{i}")
+                        fv_in = st.text_input("Field In (YYYY-MM-DD HH:MM)", value=default_in, key=f"fi_{i}")
                     with fv_col2:
-                        fv_out = st.text_input("Field Out (YYYY-MM-DD HH:MM)", key=f"fo_{i}")
+                        fv_out = st.text_input("Field Out (YYYY-MM-DD HH:MM)", value=default_out, key=f"fo_{i}")
+
                     
                     # Preview & Mapping
                     df_preview = load_csv_preview(file)
@@ -575,10 +768,6 @@ def main():
             st.divider()
 
             # --- Configuration ---
-            col1, col2 = st.columns(2)
-            with col1:
-                sensor_height = st.number_input("Sensor Height (cm)", value=166)
-
             st.subheader("Threshold Configuration")
             # Convert Default Thresholds to DataFrame for editing
             # Try to persist edits using session state if needed, but simple load is okay
@@ -588,6 +777,11 @@ def main():
             for k, v in DEFAULT_THRESHOLDS.items():
                 min_v = v[0]
                 max_v = v[1]
+                
+                # Dynamic override for height-dependent variables
+                if k in ['DT_Avg', 'DBTCDT_Avg']:
+                    max_v = sensor_height + 5
+
                 t_data.append({"Column": k, "Min": str(min_v), "Max": str(max_v)})
 
             t_df = pd.DataFrame(t_data)
@@ -612,11 +806,6 @@ def main():
                     max_val = float(row['Max'])
                 except:
                     max_val = row['Max']
-
-                # Update Height Dependent Thresholds dynamically if they match default logic?
-                # Actually user edits override.
-                if row['Column'] in ['DT_Avg', 'DBTCDT_Avg'] and max_val == 171 and sensor_height != 166:
-                     max_val = sensor_height + 5
 
                 active_thresholds[row['Column']] = (min_val, max_val)
 
