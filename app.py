@@ -147,11 +147,14 @@ def load_instrument_groups():
         # Initialize defaults if empty
         # Map list of cols to actual thresholds structure
         for grp_name, cols in INITIAL_INSTRUMENT_GROUPS.items():
-            grp_data = {}
+            grp_data = {
+                "sensor_height": 166,  # Default sensor height in cm
+                "thresholds": {}
+            }
             for col in cols:
                 # Use current defaults for initial values
                 if col in DEFAULT_THRESHOLDS:
-                    grp_data[col] = DEFAULT_THRESHOLDS[col]
+                    grp_data["thresholds"][col] = DEFAULT_THRESHOLDS[col]
             groups[grp_name] = grp_data
         
         # Save the initialized groups so user can edit them
@@ -170,6 +173,7 @@ def save_station_configs(configs):
 def parse_toa5_header(file):
     """
     Parses the first line of a TOA5 file (StringIO or UploadedFile)
+    or returns default metadata for Excel files.
     Returns a dict with metadata, defaults to '999' if missing.
     """
     meta = {
@@ -177,6 +181,11 @@ def parse_toa5_header(file):
         'logger_script': '999',
         'logger_software': '999'
     }
+    
+    # Check if it's an Excel file
+    if file.name.endswith(('.xlsx', '.xls')):
+        st.info(f"Excel file detected: {file.name}. Using default metadata.")
+        return meta
     
     try:
         # Read first line without consuming the file permanently
@@ -272,15 +281,24 @@ def parse_field_report(pdf_file):
 
 def process_file_data(uploaded_file, mapping, metadata, data_id, station_id):
     """
-    Reads the full CSV, applies mapping, adds metadata columns.
+    Reads the full CSV or Excel file, applies mapping, adds metadata columns.
     Returns processed DataFrame.
     """
     try:
-        # Read full file
-        # Skip TOA5 header (0), Units (2), Type (3). Header is row 1.
-        df = pd.read_csv(uploaded_file, skiprows=[0, 2, 3], 
-                         na_values=['NAN', '"NAN"', '', '-7999', '7999'], 
-                         keep_default_na=True, skipinitialspace=True, low_memory=False)
+        # Check file type
+        is_excel = uploaded_file.name.endswith(('.xlsx', '.xls'))
+        
+        if is_excel:
+            # Read Excel file
+            # Assume data starts at row 3 (row 1 = headers, row 2 = units)
+            df = pd.read_excel(uploaded_file, skiprows=[1],  # Skip units row
+                             na_values=['NAN', '"NAN"', '', '-7999', '7999'])
+        else:
+            # Read CSV/TOA5 file
+            # Skip TOA5 header (0), Units (2), Type (3). Header is row 1.
+            df = pd.read_csv(uploaded_file, skiprows=[0, 2, 3], 
+                             na_values=['NAN', '"NAN"', '', '-7999', '7999'], 
+                             keep_default_na=True, skipinitialspace=True, low_memory=False)
         
         # Reset file pointer for next read if needed (though Streamlit handles this usually)
         uploaded_file.seek(0)
@@ -482,7 +500,7 @@ def main():
 
     station_name = st.sidebar.text_input("Station Name", value="Station_Name")
     output_dir = st.sidebar.text_input("Output Directory", value="data")
-    sensor_height = st.sidebar.number_input("Sensor Height (cm)", value=166)
+    # Sensor height is now configured per instrument group
     
     if not os.path.exists(output_dir):
         os.makedirs(output_dir, exist_ok=True)
@@ -494,7 +512,7 @@ def main():
     with tab1:
         st.header("1. Ingestion & Standardization")
         
-        uploaded_files = st.file_uploader("Upload Raw Logger Files (CSV/TOA5)", accept_multiple_files=True)
+        uploaded_files = st.file_uploader("Upload Raw Logger Files (CSV/TOA5/Excel)", accept_multiple_files=True, type=["csv", "dat", "xlsx", "xls"])
         
         processed_file_configs = [] # specific configs for each file
 
@@ -866,14 +884,32 @@ def main():
                         grp_name = new_grp_name if new_grp_name else None
                         current_cols = []
                         current_thresholds = {}
+                        current_sensor_height = 166
                     else:
                         grp_name = selected_group
                         current_data = groups[selected_group]
-                        current_cols = list(current_data.keys())
-                        current_thresholds = current_data
+                        # Handle both old and new format
+                        if isinstance(current_data, dict) and "thresholds" in current_data:
+                            current_thresholds = current_data["thresholds"]
+                            current_sensor_height = current_data.get("sensor_height", 166)
+                        else:
+                            # Legacy format: dict is just thresholds
+                            current_thresholds = current_data
+                            current_sensor_height = 166
+                        current_cols = list(current_thresholds.keys())
 
                 with col_grp2:
                     if grp_name:
+                        # Sensor Height Input
+                        grp_sensor_height = st.number_input(
+                            "Sensor Height (cm)", 
+                            value=current_sensor_height, 
+                            min_value=0, 
+                            max_value=500,
+                            key=f"sensor_height_{grp_name}"
+                        )
+                        st.caption("Used for DT_Avg and DBTCDT_Avg threshold calculations.")
+                        st.divider()
                         # Select Columns
                         # Get all available columns from mapping for suggestions
                         mapping = load_mapping()
@@ -904,17 +940,42 @@ def main():
                                     cur_min, cur_max = DEFAULT_THRESHOLDS[c]
                                 else:
                                     cur_min, cur_max = 0, 0
+                                
+                                # Override Max for sensor-height-dependent columns
+                                # This makes the Max reactive to the sensor height input above
+                                if c == 'DT_Avg' or c == 'DBTCDT_Avg':
+                                    cur_max = grp_sensor_height + 5
+                                
                                 edit_data.append({"Column": c, "Min": cur_min, "Max": cur_max})
                             
                             grp_df = pd.DataFrame(edit_data)
-                            edited_grp_df = st.data_editor(grp_df, key=f"editor_{grp_name}", use_container_width=True)
+                            
+                            # Configure data editor to make Max read-only for sensor-height columns
+                            column_config = {
+                                "Max": st.column_config.NumberColumn(
+                                    "Max",
+                                    help="Auto-calculated for DT_Avg & DBTCDT_Avg (Sensor Height + 5)",
+                                )
+                            }
+                            
+                            edited_grp_df = st.data_editor(
+                                grp_df, 
+                                key=f"editor_{grp_name}", 
+                                use_container_width=True,
+                                column_config=column_config,
+                                disabled=["Column"]  # Prevent column name editing
+                            )
                             
                             if st.button("Save Group"):
-                                new_grp_data = {}
+                                new_thresholds = {}
                                 for idx, row in edited_grp_df.iterrows():
-                                    new_grp_data[row['Column']] = (row['Min'], row['Max'])
+                                    new_thresholds[row['Column']] = (row['Min'], row['Max'])
                                 
-                                groups[grp_name] = new_grp_data
+                                # Save with new structure
+                                groups[grp_name] = {
+                                    "sensor_height": grp_sensor_height,
+                                    "thresholds": new_thresholds
+                                }
                                 save_instrument_groups(groups)
                                 st.success(f"Saved group '{grp_name}'!")
                                 st.rerun()
@@ -973,17 +1034,26 @@ def main():
                 
                 # Logic to find active group
                 active_grp_name = "None (Using Defaults)"
-                active_grp_data = {}
+                active_grp_thresholds = {}
+                active_sensor_height = 166  # Default
                 
                 start_check = str(check_date)
                 # Check overlapping configs
                 for cfg in st_cfg:
                     if cfg['start'] <= start_check <= cfg['end']:
                         active_grp_name = cfg['group']
-                        active_grp_data = groups.get(active_grp_name, {})
+                        grp_data = groups.get(active_grp_name, {})
+                        # Handle new nested structure
+                        if isinstance(grp_data, dict) and "thresholds" in grp_data:
+                            active_grp_thresholds = grp_data["thresholds"]
+                            active_sensor_height = grp_data.get("sensor_height", 166)
+                        else:
+                            # Legacy format
+                            active_grp_thresholds = grp_data
                         break
                 
                 st.write(f"**Active Group:** {active_grp_name}")
+                st.write(f"**Sensor Height:** {active_sensor_height} cm")
                 
                 # Build Comparison Table
                 preview_data = []
@@ -992,8 +1062,8 @@ def main():
                     def_min, def_max = v
                     
                     # Override
-                    if k in active_grp_data:
-                        act_min, act_max = active_grp_data[k]
+                    if k in active_grp_thresholds:
+                        act_min, act_max = active_grp_thresholds[k]
                         source = "Instrument Group"
                     else:
                         act_min, act_max = def_min, def_max
@@ -1014,9 +1084,7 @@ def main():
 
             # Use DEFAULT_THRESHOLDS directly as the base
             active_thresholds = DEFAULT_THRESHOLDS.copy()
-            # Apply sensor height adjustments
-            active_thresholds['DT_Avg'] = (50, sensor_height + 5)
-            active_thresholds['DBTCDT_Avg'] = (0, sensor_height + 5)
+            # Sensor height adjustments are now applied per-group in the QC pipeline
 
             # --- Logic Functions (Embedded to access st context) ---
             def run_qc_pipeline(df):
@@ -1042,7 +1110,11 @@ def main():
                     else:
                         # If not in Base and not in any Group, skip
                         # Optimization: check if any group has it
-                        relevant_deps = [d for d in current_deps if col in instr_groups.get(d['group'], {})]
+                        def get_group_thresholds(g):
+                            if isinstance(g, dict) and "thresholds" in g:
+                                return g["thresholds"]
+                            return g
+                        relevant_deps = [d for d in current_deps if col in get_group_thresholds(instr_groups.get(d['group'], {}))]
                         if not relevant_deps:
                             continue
                         base_min, base_max = -np.inf, np.inf
@@ -1052,7 +1124,11 @@ def main():
                     vals = pd.to_numeric(df[col], errors='coerce')
                     
                     # Optimization: If no deployments override this column, use vector calc
-                    relevant_deps = [d for d in current_deps if col in instr_groups.get(d['group'], {})]
+                    def get_group_thresholds(g):
+                        if isinstance(g, dict) and "thresholds" in g:
+                            return g["thresholds"]
+                        return g
+                    relevant_deps = [d for d in current_deps if col in get_group_thresholds(instr_groups.get(d['group'], {}))]
                     
                     if not relevant_deps:
                          limit_min = resolve_val(base_min, df)
@@ -1068,15 +1144,30 @@ def main():
                         limit_max_series[:] = resolve_val(base_max, df)
                         
                         for dep in current_deps:
-                            grp = instr_groups.get(dep['group'], {})
-                            if col in grp:
+                            grp_data = instr_groups.get(dep['group'], {})
+                            # Extract thresholds and sensor_height from nested structure
+                            if isinstance(grp_data, dict) and "thresholds" in grp_data:
+                                grp_thresholds = grp_data["thresholds"]
+                                grp_sensor_height = grp_data.get("sensor_height", 166)
+                            else:
+                                # Legacy format
+                                grp_thresholds = grp_data
+                                grp_sensor_height = 166
+                                
+                            if col in grp_thresholds:
                                 try:
                                     t_s = pd.to_datetime(dep['start'])
                                     t_e = pd.to_datetime(dep['end']) + timedelta(hours=23, minutes=59)
                                     
                                     mask_time = (df['TIMESTAMP'] >= t_s) & (df['TIMESTAMP'] <= t_e)
                                     if mask_time.any():
-                                        g_min, g_max = grp[col]
+                                        g_min, g_max = grp_thresholds[col]
+                                        
+                                        # Apply sensor height adjustments for DT_Avg and DBTCDT_Avg
+                                        if col == 'DT_Avg':
+                                            g_max = grp_sensor_height + 5
+                                        elif col == 'DBTCDT_Avg':
+                                            g_max = grp_sensor_height + 5
                                         
                                         # Resolve values for this slice
                                         vals_slice = df.loc[mask_time]
@@ -1105,16 +1196,43 @@ def main():
                         df.loc[mask_apply, flag_col] = new_flags
 
                 # 2. Dynamic/Logic Flags
-                # Snow Depth Logic
-                limit = sensor_height - 50
+                # Snow Depth Logic - Time-varying sensor height per deployment
                 if 'DBTCDT_Avg' in df.columns:
                      vals = pd.to_numeric(df['DBTCDT_Avg'], errors='coerce')
                      flag_col = 'DBTCDT_Avg_Flag'
+                     
+                     # Build time-varying limit for T > H-50
+                     # Default sensor height
+                     default_sensor_height = 166
+                     limit_series = pd.Series(default_sensor_height - 50, index=df.index)
+                     
+                     # Apply deployment-specific sensor heights
+                     for dep in current_deps:
+                         grp_data = instr_groups.get(dep['group'], {})
+                         # Extract sensor_height from nested structure
+                         if isinstance(grp_data, dict) and "sensor_height" in grp_data:
+                             grp_sensor_height = grp_data.get("sensor_height", 166)
+                         else:
+                             # Legacy format or missing
+                             grp_sensor_height = 166
+                         
+                         try:
+                             t_s = pd.to_datetime(dep['start'])
+                             t_e = pd.to_datetime(dep['end']) + timedelta(hours=23, minutes=59)
+                             
+                             mask_time = (df['TIMESTAMP'] >= t_s) & (df['TIMESTAMP'] <= t_e)
+                             if mask_time.any():
+                                 # Apply sensor height - 50 for this period
+                                 limit_series.loc[mask_time] = grp_sensor_height - 50
+                         except Exception as e:
+                             st.warning(f"Config Error in DBTCDT_Avg logic ({dep}): {e}")
+                     
                      # T > H-50
-                     mask_t = (vals > limit)
+                     mask_t = (vals > limit_series)
                      if mask_t.any():
                          curr = df.loc[mask_t, flag_col].fillna("").astype(str)
                          df.loc[mask_t, flag_col] = np.where(curr == "", "T", curr + ", T")
+                     
                      # Summer Snow
                      if 'TIMESTAMP' in df.columns:
                          months = df['TIMESTAMP'].dt.month

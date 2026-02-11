@@ -1,63 +1,69 @@
 {
     "ClimaVue50": {
-        "Rain_mm_Tot": [
-            10,
-            33.0
-        ],
-        "Strikes_Tot": [
-            0,
-            66635.0
-        ],
-        "Dist_km_Avg": [
-            0,
-            40.0
-        ],
-        "WS_ms_Avg": [
-            0,
-            30.0
-        ],
-        "WindDir": [
-            0,
-            360.0
-        ],
-        "AirT_C_Avg": [
-            -50,
-            60.0
-        ],
-        "VP_hPa_Avg": [
-            0,
-            470.0
-        ],
-        "BP_hPa_Avg": [
-            850,
-            1050.0
-        ],
-        "RH": [
-            0,
-            100.0
-        ],
-        "SlrFD_W_Avg": [
-            0,
-            1350.0
-        ],
-        "SlrTF_MJ_Tot": [
-            0,
-            1.215
-        ],
-        "RHT_C_Avg": [
-            -40,
-            50.0
-        ]
+        "sensor_height": 166,
+        "thresholds": {
+            "Rain_mm_Tot": [
+                10,
+                33.0
+            ],
+            "Strikes_Tot": [
+                0,
+                66635.0
+            ],
+            "Dist_km_Avg": [
+                0,
+                40.0
+            ],
+            "WS_ms_Avg": [
+                0,
+                30.0
+            ],
+            "WindDir": [
+                0,
+                360.0
+            ],
+            "AirT_C_Avg": [
+                -50,
+                60.0
+            ],
+            "VP_hPa_Avg": [
+                0,
+                470.0
+            ],
+            "BP_hPa_Avg": [
+                850,
+                1050.0
+            ],
+            "RH": [
+                0,
+                100.0
+            ],
+            "SlrFD_W_Avg": [
+                0,
+                1350.0
+            ],
+            "SlrTF_MJ_Tot": [
+                0,
+                1.215
+            ],
+            "RHT_C_Avg": [
+                -40,
+                50.0
+            ]
+        }
     },
     "SR50": {
-        "DT_Avg": [
-            50,
-            171
-        ],
-        "DBTCDT_Avg": [
-            0,
-            171
-        ]
+        "sensor_height": 160,
+        "thresholds": {
+            "DT_Avg": [
+                50,
+                165
+            ],
+            "DBTCDT_Avg": [
+                0,
+                165
+            ]
+        }
     },
     "NetRadiometer": {
         "SWin_Avg": [
