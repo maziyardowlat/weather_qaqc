@@ -7,16 +7,11 @@ import os
 import json
 import numpy as np
 import numpy as np
+import csv
 from datetime import datetime, timedelta, timezone
-try:
-    from suntime import Sun
-except ImportError:
-    Sun = None # Handle missing dependency gracefully
+from suntime import Sun
+from pypdf import PdfReader
 
-try:
-    from pypdf import PdfReader
-except ImportError:
-    PdfReader = None
 
 
 # Page Config
@@ -342,7 +337,6 @@ def write_csv_with_units(df, save_path):
     # Helper to load mapping
     mapping = load_mapping()
     
-    import csv
     with open(save_path, 'w', newline='') as f:
         writer = csv.writer(f)
         # 1. Header
@@ -499,7 +493,60 @@ def main():
     st.sidebar.divider()
 
     station_name = st.sidebar.text_input("Station Name", value="Station_Name")
+    
+    # Latitude and Longitude inputs (only show when station name is not default)
+    latitude = 53.7217  # Default values
+    longitude = -125.6417
+    
+    if station_name != "Station_Name":
+        # Load station configs to get saved lat/lon
+        station_configs = load_station_configs()
+        
+        # Initialize station if it doesn't exist
+        if station_name not in station_configs:
+            station_configs[station_name] = {
+                "latitude": 53.7217,
+                "longitude": -125.6417,
+                "deployments": []
+            }
+            save_station_configs(station_configs)
+        
+        # Get saved values
+        station_data = station_configs[station_name]
+        saved_lat = station_data.get("latitude", 53.7217)
+        saved_lon = station_data.get("longitude", -125.6417)
+        
+        st.sidebar.caption("📍 Station Coordinates (for solar calculations)")
+        col1, col2 = st.sidebar.columns(2)
+        with col1:
+            latitude = st.number_input(
+                "Latitude", 
+                min_value=-90.0, 
+                max_value=90.0, 
+                value=float(saved_lat),
+                step=0.0001,
+                format="%.4f",
+                key="station_latitude"
+            )
+        with col2:
+            longitude = st.number_input(
+                "Longitude", 
+                min_value=-180.0, 
+                max_value=180.0, 
+                value=float(saved_lon),
+                step=0.0001,
+                format="%.4f",
+                key="station_longitude"
+            )
+        
+        # Auto-save if values changed
+        if latitude != saved_lat or longitude != saved_lon:
+            station_configs[station_name]["latitude"] = latitude
+            station_configs[station_name]["longitude"] = longitude
+            save_station_configs(station_configs)
+    
     output_dir = st.sidebar.text_input("Output Directory", value="data")
+
     # Sensor height is now configured per instrument group
     
     if not os.path.exists(output_dir):
@@ -985,7 +1032,10 @@ def main():
                 st.info(f"Assign Instrument Groups to specific time ranges for Station: **{station_name}**")
                 
                 configs = load_station_configs()
-                st_cfg = configs.get(station_name, [])
+                
+                # Get station data (new format only)
+                station_data = configs.get(station_name, {"latitude": 53.7217, "longitude": -125.6417, "deployments": []})
+                st_cfg = station_data.get("deployments", [])
                 
                 # Display Current Configs
                 if st_cfg:
@@ -994,7 +1044,8 @@ def main():
                     st.dataframe(cfg_df)
                     
                     if st.button("Clear History"):
-                        configs[station_name] = []
+                        station_data["deployments"] = []
+                        configs[station_name] = station_data
                         save_station_configs(configs)
                         st.rerun()
                 else:
@@ -1014,16 +1065,18 @@ def main():
                     if d_start > d_end:
                         st.error("Start date must be before end date.")
                     else:
+                        # Note: lat/lon are now stored at station level, not per deployment
                         new_entry = {
                             "start": str(d_start),
                             "end": str(d_end),
                             "group": d_grp
                         }
                         if station_name not in configs:
-                            configs[station_name] = []
-                        configs[station_name].append(new_entry)
+                            configs[station_name] = {"latitude": latitude, "longitude": longitude, "deployments": []}
+                        
+                        configs[station_name]["deployments"].append(new_entry)
                         # Sort by start date
-                        configs[station_name].sort(key=lambda x: x['start'])
+                        configs[station_name]["deployments"].sort(key=lambda x: x['start'])
                         save_station_configs(configs)
                         st.success("Added deployment!")
                         st.rerun()
@@ -1091,7 +1144,13 @@ def main():
                 # Load Time-Varying Configs
                 instr_groups = load_instrument_groups()
                 st_configs = load_station_configs()
-                current_deps = st_configs.get(station_name, [])
+                
+                # Get station data (new format only)
+                station_data = st_configs.get(station_name, {"latitude": 53.7217, "longitude": -125.6417, "deployments": []})
+                current_deps = station_data.get("deployments", [])
+                station_lat = station_data.get("latitude", 53.7217)
+                station_lon = station_data.get("longitude", -125.6417)
+
                 
                 # 1. Apply Thresholds
                 # Identify columns to check: All vars in DataFrame that aren't flags/meta
@@ -1277,11 +1336,9 @@ def main():
 
                 # 3. Nighttime Flags (Z)
                 if Sun and 'TIMESTAMP' in df.columns:
-                    # Using lat/lon hardcoded in phase_2.py: 53.7217, -125.6417
-                    # Ideally this comes from Metadata/UI, but keeping compat with script
-                    latitude = 53.7217
-                    longitude = -125.6417
-                    sun = Sun(latitude, longitude)
+                    # Use station-level lat/lon (already extracted above from station config)
+                    # station_lat and station_lon were set when loading station config
+                    sun = Sun(station_lat, station_lon)
                     tz_pdt = timezone(timedelta(hours=-7))
 
                     df['TIMESTAMP'] = pd.to_datetime(df['TIMESTAMP'])
@@ -1348,23 +1405,6 @@ def main():
                          if fc not in df.columns: df[fc] = ""
                          curr = df.loc[mask_restart, fc].fillna("").astype(str)
                          df.loc[mask_restart, fc] = np.where(curr == "", "LR", curr + ", LR")
-
-                # Legacy C
-                if "Data_ID" in df.columns:
-                    mask_leg = (df['Data_ID'].astype(str) == "222") # Hardcoded in script
-                    if mask_leg.any():
-                        for col in ADD_CAUTION_FLAG:
-                            if col in df.columns:
-                                fc = f"{col}_Flag"
-                                if fc not in df.columns: df[fc] = ""
-                                curr = df.loc[mask_leg, fc].fillna("").astype(str)
-                                mask_has_c = curr.str.contains(r'\bC\b', regex=True)
-                                # Only apply to those without C
-                                mask_apply = mask_leg & (~mask_has_c)
-                                if mask_apply.any():
-                                     idx = df.index[mask_apply]
-                                     curr_subset = df.loc[idx, fc].fillna("").astype(str)
-                                     df.loc[idx, fc] = np.where(curr_subset == "", "C", curr_subset + ", C")
 
                 # 6. Dependencies
                 for dep in DEPENDENCY_CONFIG:

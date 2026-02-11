@@ -1,10 +1,18 @@
 {
-    "Station_Name": [],
-    "02MFW005": [
-        {
-            "start": "2023-07-04",
-            "end": "2023-12-08",
-            "group": "SR50"
-        }
-    ]
+    "Station_Name": {
+        "latitude": 53.7217,
+        "longitude": -125.6417,
+        "deployments": []
+    },
+    "02MFW005": {
+        "latitude": 53.7217,
+        "longitude": -125.6417,
+        "deployments": [
+            {
+                "start": "2023-07-04",
+                "end": "2023-12-08",
+                "group": "SR50"
+            }
+        ]
+    }
 }
