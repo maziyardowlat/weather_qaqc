@@ -166,7 +166,13 @@ def process_file_data(uploaded_file, mapping, metadata, data_id, station_id):
         # Invert mapping? No, mapping is Source -> Target
         # df.rename(columns=mapping)
         # However, mapping might be incomplete, so only rename known keys
-        clean_mapping = {k: v for k, v in mapping.items() if k in df.columns and v != k}
+        # 1. Identify Drop Columns
+        cols_to_drop = [k for k, v in mapping.items() if v == "REMOVE" and k in df.columns]
+        if cols_to_drop:
+            df = df.drop(columns=cols_to_drop)
+            
+        # 2. Rename remaining
+        clean_mapping = {k: v for k, v in mapping.items() if k in df.columns and v != k and v != "REMOVE"}
         if clean_mapping:
             df = df.rename(columns=clean_mapping)
             
@@ -239,6 +245,9 @@ def main():
                         logger_script = st.text_input(f"Logger Script", value=meta['logger_script'], key=f"lsc_{i}")
                         logger_soft = st.text_input(f"Logger Software", value=meta['logger_software'], key=f"lsw_{i}")
 
+                    # Caution Flag Option
+                    add_caution = st.checkbox(f"Add Caution Flag (C) to all data columns", key=f"caution_{i}")
+
                     # Field Visits (Optional)
                     st.caption("Field Visit (Optional - Leave blank if none)")
                     fv_col1, fv_col2 = st.columns(2)
@@ -262,7 +271,13 @@ def main():
                         for col in columns:
                             target = col 
                             # Try to find match in JSON
-                            for std_name, aliases in mapping_ref.items():
+                            for std_name, info in mapping_ref.items():
+                                # Handle new dict format (with units) or old list format
+                                if isinstance(info, dict):
+                                    aliases = info.get('aliases', [])
+                                else:
+                                    aliases = info # Fallback for old format
+
                                 if col == std_name:
                                     target = std_name
                                     break
@@ -271,8 +286,9 @@ def main():
                                     break
                             current_mapping[col] = target
 
-                        st.caption("Column Mapping (Edit 'Target' to rename)")
+                        st.caption("Column Mapping (Uncheck 'Include' to remove column)")
                         map_df = pd.DataFrame({
+                            "Include": [True] * len(columns),
                             "Source": columns,
                             "Target": [current_mapping[c] for c in columns]
                         })
@@ -283,6 +299,10 @@ def main():
                             key=f"map_editor_{i}",
                             num_rows="fixed",
                             column_config={
+                                "Include": st.column_config.CheckboxColumn(
+                                    label="Keep?",
+                                    default=True
+                                ),
                                 "Source": st.column_config.TextColumn(disabled=True),
                                 "Target": st.column_config.SelectboxColumn(
                                     label="Target Column",
@@ -294,8 +314,12 @@ def main():
                         )
                         
                         # Create dictionary from editor
+                        # If Include is False, map to "REMOVE" which is handled in process_file_data
                         for index, row in edited_map.iterrows():
-                            final_mapping[row['Source']] = row['Target']
+                            if row['Include']:
+                                final_mapping[row['Source']] = row['Target']
+                            else:
+                                final_mapping[row['Source']] = "REMOVE"
                     
                     # Save Config
                     processed_file_configs.append({
@@ -307,7 +331,9 @@ def main():
                             "Logger_Software": logger_soft
                         },
                         "field_visit": (fv_in, fv_out) if fv_in and fv_out else None,
-                        "mapping": final_mapping
+                        "field_visit": (fv_in, fv_out) if fv_in and fv_out else None,
+                        "mapping": final_mapping,
+                        "add_caution": add_caution
                     })
 
             # --- Processing Button ---
@@ -329,8 +355,23 @@ def main():
                             # Better to store field visits and apply to final df
                             # But we need to know which file/period the visit applies to if we do it globally? 
                             # Actually, field visits are specific time ranges, so we can apply globally by range.
-                            pass
+                            # Actually, field visits are specific time ranges, so we can apply globally by range.
                             
+                            # Apply Manual Caution Flag if selected
+                            if cfg.get('add_caution', False):
+                                for col in ADD_CAUTION_FLAG:
+                                    if col in df.columns:
+                                        flag_col = f"{col}_Flag"
+                                        if flag_col not in df.columns:
+                                            df[flag_col] = "" # Init
+                                        
+                                        # Append "C"
+                                        # Append "C" ensuring no duplicates
+                                        curr = df[flag_col].fillna("").astype(str)
+                                        # If "C" is already in the flag (e.g. "C", "C, T", "M, C"), don't add
+                                        mask_has_c = curr.str.contains(r'\bC\b', regex=True)
+                                        df.loc[~mask_has_c, flag_col] = np.where(curr[~mask_has_c] == "", "C", curr[~mask_has_c] + ", C")
+                                        
                         all_dfs.append(df)
                     
                     if all_dfs:
@@ -380,8 +421,14 @@ def main():
                                 if col.endswith('_Flag') or col == "RECORD": 
                                     continue
                                     
+                                    continue
+                                    
                                 flag_col = f"{col}_Flag"
-                                df_final[flag_col] = "" # Init
+                                # Don't overwrite existing flags (e.g. C from file processing)
+                                if flag_col not in df_final.columns:
+                                    df_final[flag_col] = "" # Init
+                                else:
+                                    df_final[flag_col] = df_final[flag_col].fillna("").astype(str)
                                 
                                 # ERR Logic
                                 # Convert to numeric
@@ -424,10 +471,36 @@ def main():
                                         st.warning(f"Invalid Field Visit Time: {f_in} - {f_out}")
 
                             # Reorder Columns
-                            final_cols = ['TIMESTAMP', 'RECORD'] + data_cols + meta_cols + [c for c in df_final.columns if c.endswith('_Flag')]
-                            # Ensure columns exist
-                            final_cols = [c for c in final_cols if c in df_final.columns]
-                            df_final = df_final[final_cols]
+                            # Interleave Data and Flags
+                            ordered_cols = ['TIMESTAMP']
+                            
+                            # Handle RECORD and RECORD_Flag
+                            if 'RECORD' in df_final.columns:
+                                ordered_cols.append('RECORD')
+                                if 'RECORD_Flag' not in df_final.columns:
+                                    df_final['RECORD_Flag'] = ""
+                                ordered_cols.append('RECORD_Flag')
+
+                            # Identify data columns (exclude reserved)
+                            # Reserved: TIMESTAMP, RECORD, RECORD_Flag, Meta Cols, and ALL Flag columns (we add flags manually next to data)
+                            reserved = set(['TIMESTAMP', 'RECORD', 'RECORD_Flag']) | set(meta_cols) | set([c for c in df_final.columns if c.endswith("_Flag")])
+                            data_cols = [c for c in df_final.columns if c not in reserved]
+
+                            # Add data columns and their flags
+                            for col in data_cols:
+                                ordered_cols.append(col)
+                                flag_col = f"{col}_Flag"
+                                if flag_col in df_final.columns:
+                                    ordered_cols.append(flag_col)
+                                        
+                            # Add metadata columns at the END
+                            for mc in meta_cols:
+                                if mc in df_final.columns:
+                                    ordered_cols.append(mc)
+                            # Just ensure all columns are covered or dropped?
+                            # For now, this covers the main requirement.
+                            
+                            df_final = df_final[ordered_cols]
                             
                             # Save
                             filename = f"{station_name}_concatenated_tidy.csv"
@@ -668,7 +741,13 @@ def main():
                                 fc = f"{col}_Flag"
                                 if fc not in df.columns: df[fc] = ""
                                 curr = df.loc[mask_leg, fc].fillna("").astype(str)
-                                df.loc[mask_leg, fc] = np.where(curr == "", "C", curr + ", C")
+                                mask_has_c = curr.str.contains(r'\bC\b', regex=True)
+                                # Only apply to those without C
+                                mask_apply = mask_leg & (~mask_has_c)
+                                if mask_apply.any():
+                                     idx = df.index[mask_apply]
+                                     curr_subset = df.loc[idx, fc].fillna("").astype(str)
+                                     df.loc[idx, fc] = np.where(curr_subset == "", "C", curr_subset + ", C")
 
                 # 6. Dependencies
                 for dep in DEPENDENCY_CONFIG:
@@ -714,9 +793,35 @@ def main():
                         # Process
                         df_qc = run_qc_pipeline(df_qc)
 
-                        # Cleanup Flags
-                        flag_cols = [c for c in df_qc.columns if c.endswith("_Flag")]
-                        df_qc[flag_cols] = df_qc[flag_cols].fillna("")
+                        # Reorder Columns (Interleave)
+                        # Reorder Columns (Interleave)
+                        ordered_cols = ['TIMESTAMP']
+                        
+                        # Handle RECORD and RECORD_Flag
+                        if 'RECORD' in df_qc.columns:
+                            ordered_cols.append('RECORD')
+                            # Ensure flag exists (QC might have added LR, but if not, create empty)
+                            if 'RECORD_Flag' not in df_qc.columns:
+                                df_qc['RECORD_Flag'] = ""
+                            ordered_cols.append('RECORD_Flag')
+                            
+                        meta_cols = ['Data_ID', 'Station_ID', 'Logger_ID', 'Logger_Script', 'Logger_Software']
+
+                        # Identify data columns (everything else)
+                        reserved = set(['TIMESTAMP', 'RECORD', 'RECORD_Flag']) | set(meta_cols) | set([c for c in df_qc.columns if c.endswith("_Flag")])
+                        data_cols = [c for c in df_qc.columns if c not in reserved]
+                        
+                        for col in data_cols:
+                            ordered_cols.append(col)
+                            flag_col = f"{col}_Flag"
+                            if flag_col in df_qc.columns:
+                                ordered_cols.append(flag_col)
+                                
+                        # Add metadata columns at the END
+                        for mc in meta_cols:
+                            if mc in df_qc.columns: ordered_cols.append(mc)
+                                
+                        df_qc = df_qc[ordered_cols]
 
                         # Save
                         out_name = selected_file.replace("_tidy.csv", "_tidy_QC.csv")
