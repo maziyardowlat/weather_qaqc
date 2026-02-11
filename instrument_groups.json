@@ -1,0 +1,114 @@
+{
+    "ClimaVue50": {
+        "Rain_mm_Tot": [
+            10,
+            33.0
+        ],
+        "Strikes_Tot": [
+            0,
+            66635.0
+        ],
+        "Dist_km_Avg": [
+            0,
+            40.0
+        ],
+        "WS_ms_Avg": [
+            0,
+            30.0
+        ],
+        "WindDir": [
+            0,
+            360.0
+        ],
+        "AirT_C_Avg": [
+            -50,
+            60.0
+        ],
+        "VP_hPa_Avg": [
+            0,
+            470.0
+        ],
+        "BP_hPa_Avg": [
+            850,
+            1050.0
+        ],
+        "RH": [
+            0,
+            100.0
+        ],
+        "SlrFD_W_Avg": [
+            0,
+            1350.0
+        ],
+        "SlrTF_MJ_Tot": [
+            0,
+            1.215
+        ],
+        "RHT_C_Avg": [
+            -40,
+            50.0
+        ]
+    },
+    "SR50": {
+        "DT_Avg": [
+            50,
+            171
+        ],
+        "DBTCDT_Avg": [
+            0,
+            171
+        ]
+    },
+    "NetRadiometer": {
+        "SWin_Avg": [
+            0,
+            1350
+        ],
+        "SWout_Avg": [
+            0,
+            "SWin_Avg"
+        ],
+        "LWin_Avg": [
+            100,
+            550
+        ],
+        "LWout_Avg": [
+            150,
+            600
+        ],
+        "SWnet_Avg": [
+            0,
+            1350
+        ],
+        "LWnet_Avg": [
+            -300,
+            100
+        ],
+        "SWalbedo_Avg": [
+            0,
+            1
+        ],
+        "NR_Avg": [
+            -200,
+            1000
+        ],
+        "stmp_Avg": [
+            -50,
+            60
+        ],
+        "gtmp_Avg": [
+            -50,
+            60
+        ]
+    },
+    "System": {
+        "BattV_Avg": [
+            10,
+            16
+        ],
+        "PTemp_C_Avg": [
+            -40,
+            70
+        ]
+    }
+}

@@ -25,8 +25,11 @@ st.set_page_config(page_title="NHG Weather Pipeline", layout="wide")
 # Constants
 # Constants
 MAPPING_FILE = "column_mapping.json"
+GROUPS_FILE = "instrument_groups.json"
+STATION_CONFIG_FILE = "station_configs.json"
 
 # --- QC Configuration (Default) ---
+# This serves as the "Base" checks if no instrument group is assigned
 DEFAULT_THRESHOLDS = {
     'BattV_Avg': (10, 16),
     'PTemp_C_Avg': (-40, 70),
@@ -54,6 +57,26 @@ DEFAULT_THRESHOLDS = {
     'NR_Avg': (-200, 1000),
     'stmp_Avg': (-50, 60),
     'gtmp_Avg': (-50, 60), 
+}
+
+# Initial Instrument Definitions
+# If instrument_groups.json doesn't exist, we build it from this list + DEFAULT_THRESHOLDS
+INITIAL_INSTRUMENT_GROUPS = {
+    'ClimaVue50': [
+        'Rain_mm_Tot', 'Strikes_Tot', 'Dist_km_Avg', 'WS_ms_Avg', 'WindDir',
+        'AirT_C_Avg', 'VP_hPa_Avg', 'BP_hPa_Avg', 'RH', 'SlrFD_W_Avg',
+        'SlrTF_MJ_Tot', 'RHT_C_Avg'
+    ],
+    'SR50': [
+        'DT_Avg', 'DBTCDT_Avg'
+    ],
+    'NetRadiometer': [
+        'SWin_Avg', 'SWout_Avg', 'LWin_Avg', 'LWout_Avg', 'SWnet_Avg',
+        'LWnet_Avg', 'SWalbedo_Avg', 'NR_Avg', 'stmp_Avg', 'gtmp_Avg'
+    ],
+    'System': [
+        'BattV_Avg', 'PTemp_C_Avg'
+    ]
 }
 
 DEPENDENCY_CONFIG = [
@@ -94,15 +117,55 @@ ADD_CAUTION_FLAG = [
 
 # --- Helper Functions ---
 
+def load_json_file(filepath, default=None):
+    if default is None: default = {}
+    if os.path.exists(filepath):
+        try:
+            with open(filepath, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            st.error(f"Error loading {filepath}: {e}")
+            return default
+    return default
+
+def save_json_file(filepath, data):
+    try:
+        with open(filepath, 'w') as f:
+            json.dump(data, f, indent=4)
+    except Exception as e:
+         st.error(f"Error saving {filepath}: {e}")
+
 def load_mapping():
-    if os.path.exists(MAPPING_FILE):
-        with open(MAPPING_FILE, 'r') as f:
-            return json.load(f)
-    return {}
+    return load_json_file(MAPPING_FILE, {})
 
 def save_mapping(mapping):
-    with open(MAPPING_FILE, 'w') as f:
-        json.dump(mapping, f, indent=4)
+    save_json_file(MAPPING_FILE, mapping)
+
+def load_instrument_groups():
+    groups = load_json_file(GROUPS_FILE, {})
+    if not groups:
+        # Initialize defaults if empty
+        # Map list of cols to actual thresholds structure
+        for grp_name, cols in INITIAL_INSTRUMENT_GROUPS.items():
+            grp_data = {}
+            for col in cols:
+                # Use current defaults for initial values
+                if col in DEFAULT_THRESHOLDS:
+                    grp_data[col] = DEFAULT_THRESHOLDS[col]
+            groups[grp_name] = grp_data
+        
+        # Save the initialized groups so user can edit them
+        save_json_file(GROUPS_FILE, groups)
+    return groups
+
+def save_instrument_groups(groups):
+    save_json_file(GROUPS_FILE, groups)
+
+def load_station_configs():
+    return load_json_file(STATION_CONFIG_FILE, {})
+
+def save_station_configs(configs):
+    save_json_file(STATION_CONFIG_FILE, configs)
 
 def parse_toa5_header(file):
     """
@@ -756,76 +819,281 @@ def main():
     with tab2:
         st.header("2. QA/QC Processing")
 
-        # File Selection
+        # File Selection (Moved Up)
         if os.path.exists(output_dir):
             files = [f for f in os.listdir(output_dir) if f.endswith("_concatenated_tidy.csv")]
         else:
             files = []
-
         selected_file = st.selectbox("Select File to Process", files)
+        
+        # Load File Metadata (Dates) if selected
+        file_start_date = datetime.today().date()
+        file_end_date = datetime.today().date()
+        
+        if selected_file:
+            file_path = os.path.join(output_dir, selected_file)
+            try:
+                # Read timestamp column, skip units row (row index 1)
+                df_dates = pd.read_csv(file_path, usecols=['TIMESTAMP'], skiprows=[1])
+                df_dates['TIMESTAMP'] = pd.to_datetime(df_dates['TIMESTAMP'])
+                file_start_date = df_dates['TIMESTAMP'].min().date()
+                file_end_date = df_dates['TIMESTAMP'].max().date()
+                st.success(f"📅 File date range: {file_start_date} to {file_end_date}")
+            except Exception as e:
+                st.warning(f"Could not load file dates: {e}. Using today's date as default.")
+
+        st.divider()
+
+        # --- Instrument Configuration ---
+        with st.expander("🛠️ Configure Instruments & Deployments", expanded=True):
+            tab_groups, tab_deploy = st.tabs(["Instrument Groups", "Deployment History"])
+            
+            # --- Tab A: Instrument Groups ---
+            with tab_groups:
+                st.info("Define sets of instruments (e.g., 'ClimaVue50', 'Winter Setup') and their specific thresholds.")
+                
+                # Load
+                groups = load_instrument_groups()
+                group_names = list(groups.keys())
+                
+                # Edit / Create
+                col_grp1, col_grp2 = st.columns([1, 2])
+                with col_grp1:
+                    selected_group = st.selectbox("Select Group to Edit", ["<New Group>"] + group_names)
+                    
+                    if selected_group == "<New Group>":
+                        new_grp_name = st.text_input("New Group Name")
+                        grp_name = new_grp_name if new_grp_name else None
+                        current_cols = []
+                        current_thresholds = {}
+                    else:
+                        grp_name = selected_group
+                        current_data = groups[selected_group]
+                        current_cols = list(current_data.keys())
+                        current_thresholds = current_data
+
+                with col_grp2:
+                    if grp_name:
+                        # Select Columns
+                        # Get all available columns from mapping for suggestions
+                        mapping = load_mapping()
+                        all_known_cols = list(mapping.keys()) + list(DEFAULT_THRESHOLDS.keys())
+                        all_known_cols = sorted(list(set(all_known_cols)))
+                        
+                        # Multiselect
+                        # Pre-select columns that are in the current group
+                        default_sel = [c for c in current_cols if c in all_known_cols]
+                        # Ensure we don't lose cols that might not be in "known"
+                        extras = [c for c in current_cols if c not in all_known_cols]
+                        
+                        selected_cols = st.multiselect("Included Columns", all_known_cols + extras, default=default_sel + extras)
+                        
+                        # Threshold Editor for Selected Cols
+                        if selected_cols:
+                            st.caption("Set Thresholds for this Group:")
+                            edit_data = []
+                            for c in selected_cols:
+                                # Get existing or default or empty
+                                if c in current_thresholds:
+                                    val = current_thresholds[c]
+                                    if isinstance(val, list) or isinstance(val, tuple):
+                                        cur_min, cur_max = val[0], val[1]
+                                    else:
+                                        cur_min, cur_max = 0, 0
+                                elif c in DEFAULT_THRESHOLDS:
+                                    cur_min, cur_max = DEFAULT_THRESHOLDS[c]
+                                else:
+                                    cur_min, cur_max = 0, 0
+                                edit_data.append({"Column": c, "Min": cur_min, "Max": cur_max})
+                            
+                            grp_df = pd.DataFrame(edit_data)
+                            edited_grp_df = st.data_editor(grp_df, key=f"editor_{grp_name}", use_container_width=True)
+                            
+                            if st.button("Save Group"):
+                                new_grp_data = {}
+                                for idx, row in edited_grp_df.iterrows():
+                                    new_grp_data[row['Column']] = (row['Min'], row['Max'])
+                                
+                                groups[grp_name] = new_grp_data
+                                save_instrument_groups(groups)
+                                st.success(f"Saved group '{grp_name}'!")
+                                st.rerun()
+
+            # --- Tab B: Deployment History ---
+            with tab_deploy:
+                st.info(f"Assign Instrument Groups to specific time ranges for Station: **{station_name}**")
+                
+                configs = load_station_configs()
+                st_cfg = configs.get(station_name, [])
+                
+                # Display Current Configs
+                if st_cfg:
+                    st.write("Current Deployments:")
+                    cfg_df = pd.DataFrame(st_cfg)
+                    st.dataframe(cfg_df)
+                    
+                    if st.button("Clear History"):
+                        configs[station_name] = []
+                        save_station_configs(configs)
+                        st.rerun()
+                else:
+                    st.warning("No deployment history found. 'Base' thresholds will apply everywhere.")
+
+                st.divider()
+                st.write("Add Deployment:")
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    d_start = st.date_input("Start Date", value=file_start_date)
+                with c2:
+                    d_end = st.date_input("End Date", value=file_end_date)
+                with c3:
+                    d_grp = st.selectbox("Instrument Group", group_names)
+                    
+                if st.button("Add Assignment"):
+                    if d_start > d_end:
+                        st.error("Start date must be before end date.")
+                    else:
+                        new_entry = {
+                            "start": str(d_start),
+                            "end": str(d_end),
+                            "group": d_grp
+                        }
+                        if station_name not in configs:
+                            configs[station_name] = []
+                        configs[station_name].append(new_entry)
+                        # Sort by start date
+                        configs[station_name].sort(key=lambda x: x['start'])
+                        save_station_configs(configs)
+                        st.success("Added deployment!")
+                        st.rerun()
+                
+                st.divider()
+                st.subheader("🔍 Check Active Thresholds")
+                check_date = st.date_input("Preview thresholds for date:", value=file_start_date)
+                
+                # Logic to find active group
+                active_grp_name = "None (Using Defaults)"
+                active_grp_data = {}
+                
+                start_check = str(check_date)
+                # Check overlapping configs
+                for cfg in st_cfg:
+                    if cfg['start'] <= start_check <= cfg['end']:
+                        active_grp_name = cfg['group']
+                        active_grp_data = groups.get(active_grp_name, {})
+                        break
+                
+                st.write(f"**Active Group:** {active_grp_name}")
+                
+                # Build Comparison Table
+                preview_data = []
+                for k, v in DEFAULT_THRESHOLDS.items():
+                    # Default
+                    def_min, def_max = v
+                    
+                    # Override
+                    if k in active_grp_data:
+                        act_min, act_max = active_grp_data[k]
+                        source = "Instrument Group"
+                    else:
+                        act_min, act_max = def_min, def_max
+                        source = "Default"
+                        
+                    preview_data.append({
+                        "Column": k,
+                        "Effective Min": str(act_min),
+                        "Effective Max": str(act_max),
+                        "Source": source
+                    })
+                
+                st.dataframe(pd.DataFrame(preview_data), use_container_width=True)
+
 
         if selected_file:
             st.divider()
 
-            # --- Configuration ---
-            st.subheader("Threshold Configuration")
-            # Convert Default Thresholds to DataFrame for editing
-            # Try to persist edits using session state if needed, but simple load is okay
-
-            # Prepare data for editor
-            t_data = []
-            for k, v in DEFAULT_THRESHOLDS.items():
-                min_v = v[0]
-                max_v = v[1]
-                
-                # Dynamic override for height-dependent variables
-                if k in ['DT_Avg', 'DBTCDT_Avg']:
-                    max_v = sensor_height + 5
-
-                t_data.append({"Column": k, "Min": str(min_v), "Max": str(max_v)})
-
-            t_df = pd.DataFrame(t_data)
-
-            edited_t_df = st.data_editor(
-                t_df,
-                num_rows="dynamic",
-                use_container_width=True,
-                key="threshold_editor"
-            )
-
-            # Reconstruct Threshold Dictionary
-            active_thresholds = {}
-            for index, row in edited_t_df.iterrows():
-                # Handle potential numeric conversion
-                try:
-                    min_val = float(row['Min'])
-                except:
-                    min_val = row['Min'] # Keep as string if it's a column reference (e.g. 'SWin_Avg')
-
-                try:
-                    max_val = float(row['Max'])
-                except:
-                    max_val = row['Max']
-
-                active_thresholds[row['Column']] = (min_val, max_val)
+            # Use DEFAULT_THRESHOLDS directly as the base
+            active_thresholds = DEFAULT_THRESHOLDS.copy()
+            # Apply sensor height adjustments
+            active_thresholds['DT_Avg'] = (50, sensor_height + 5)
+            active_thresholds['DBTCDT_Avg'] = (0, sensor_height + 5)
 
             # --- Logic Functions (Embedded to access st context) ---
             def run_qc_pipeline(df):
+                # Load Time-Varying Configs
+                instr_groups = load_instrument_groups()
+                st_configs = load_station_configs()
+                current_deps = st_configs.get(station_name, [])
+                
                 # 1. Apply Thresholds
-                for col, (min_v, max_v) in active_thresholds.items():
-                    if col not in df.columns: continue
-                    flag_col = f"{col}_Flag"
-                    if flag_col not in df.columns: df[flag_col] = "" # Should exist from Tab 1
+                # Identify columns to check: All vars in DataFrame that aren't flags/meta
+                qc_cols = [c for c in df.columns if not c.endswith('_Flag') and c not in ['TIMESTAMP', 'RECORD', 'Data_ID', 'Station_ID', 'Logger_ID', 'Logger_Script', 'Logger_Software']]
+                
+                # Helper to resolve value/col reference
+                def resolve_val(v, data_slice):
+                    if isinstance(v, str) and v in data_slice.columns:
+                        return pd.to_numeric(data_slice[v], errors='coerce')
+                    return v
 
+                for col in qc_cols:
+                    # Determine Base Thresholds (from UI editor)
+                    if col in active_thresholds:
+                         base_min, base_max = active_thresholds[col]
+                    else:
+                        # If not in Base and not in any Group, skip
+                        # Optimization: check if any group has it
+                        relevant_deps = [d for d in current_deps if col in instr_groups.get(d['group'], {})]
+                        if not relevant_deps:
+                            continue
+                        base_min, base_max = -np.inf, np.inf
+
+                    # Initialize Limits with Base
+                    # We use Series to handle row-by-row variations
                     vals = pd.to_numeric(df[col], errors='coerce')
+                    
+                    # Optimization: If no deployments override this column, use vector calc
+                    relevant_deps = [d for d in current_deps if col in instr_groups.get(d['group'], {})]
+                    
+                    if not relevant_deps:
+                         limit_min = resolve_val(base_min, df)
+                         limit_max = resolve_val(base_max, df)
+                         mask_fail = (vals < limit_min) | (vals > limit_max)
+                    else:
+                        # Complex: Time-Varying
+                        limit_min_series = pd.Series(np.nan, index=df.index)
+                        limit_max_series = pd.Series(np.nan, index=df.index)
+                        
+                        # fill Base
+                        limit_min_series[:] = resolve_val(base_min, df)
+                        limit_max_series[:] = resolve_val(base_max, df)
+                        
+                        for dep in current_deps:
+                            grp = instr_groups.get(dep['group'], {})
+                            if col in grp:
+                                try:
+                                    t_s = pd.to_datetime(dep['start'])
+                                    t_e = pd.to_datetime(dep['end']) + timedelta(hours=23, minutes=59)
+                                    
+                                    mask_time = (df['TIMESTAMP'] >= t_s) & (df['TIMESTAMP'] <= t_e)
+                                    if mask_time.any():
+                                        g_min, g_max = grp[col]
+                                        
+                                        # Resolve values for this slice
+                                        vals_slice = df.loc[mask_time]
+                                        v_min = resolve_val(g_min, vals_slice)
+                                        v_max = resolve_val(g_max, vals_slice)
+                                        
+                                        limit_min_series.loc[mask_time] = v_min
+                                        limit_max_series.loc[mask_time] = v_max
+                                except Exception as e:
+                                    st.warning(f"Config Error ({dep}): {e}")
+                                    
+                        mask_fail = (vals < limit_min_series) | (vals > limit_max_series)
 
-                    # Resolve limits
-                    limit_min = pd.to_numeric(df[min_v], errors='coerce') if isinstance(min_v, str) and min_v in df.columns else min_v
-                    limit_max = pd.to_numeric(df[max_v], errors='coerce') if isinstance(max_v, str) and max_v in df.columns else max_v
+                    # Check Fail & Existing M
+                    flag_col = f"{col}_Flag"
+                    if flag_col not in df.columns: df[flag_col] = "" 
 
-                    # Check Fail
-                    mask_fail = (vals < limit_min) | (vals > limit_max)
-                    # Check Existing M
                     current_flags = df[flag_col].fillna("").astype(str)
                     mask_has_m = current_flags.str.contains('M')
                     mask_apply = mask_fail & (~mask_has_m)
