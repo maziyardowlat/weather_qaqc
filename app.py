@@ -1,113 +1,302 @@
-
-# ... (imports: streamlit, pandas, os, json, numpy, datetime)
-
+# NHG Weather Data Pipeline — app.py
+# Imports
 import streamlit as st
 import pandas as pd
 import os
 import json
-import numpy as np
 import numpy as np
 import csv
 from datetime import datetime, timedelta, timezone
 from suntime import Sun
 from pypdf import PdfReader
 
-
+try:
+    import openpyxl  # needed for MetadataLog parsing
+except ImportError:
+    openpyxl = None
 
 # Page Config
 st.set_page_config(page_title="NHG Weather Pipeline", layout="wide")
 
-# Constants
-# Constants
+# --- File paths for persisted config ---
 MAPPING_FILE = "column_mapping.json"
 GROUPS_FILE = "instrument_groups.json"
 STATION_CONFIG_FILE = "station_configs.json"
 
-# --- QC Configuration (Default) ---
-# This serves as the "Base" checks if no instrument group is assigned
+# ---------------------------------------------------------------------------
+# SENSOR_THRESHOLDS — two-tier threshold table derived from RefSensorThresholds.xlsx
+#
+# Each entry maps a canonical column name to a dict with:
+#   r_min / r_max  — hard physical limits  → flag 'R' if breached
+#   c_min / c_max  — soft caution limits   → flag 'C' if breached (but within R)
+#   None means "no limit for this tier" — that check is skipped entirely.
+#
+# Special string values (e.g. 'H-50', 'SWin_Avg') are resolved at runtime.
+# ---------------------------------------------------------------------------
+SENSOR_THRESHOLDS = {
+    # --- CR350 Data Logger ---
+    'BattV_Avg':      {'r_min': -9.6,  'r_max': 19.0,   'c_min': 10.0,  'c_max': 16.0},
+    'RECORD':         {'r_min': 0,     'r_max': None,   'c_min': None,  'c_max': None},
+    'Ptmp_C_Avg':     {'r_min': -40.0, 'r_max': 70.0,   'c_min': None,  'c_max': None},
+    # PTemp_C_Avg is the canonical name used in the app; alias handled via column_mapping
+    'PTemp_C_Avg':    {'r_min': -40.0, 'r_max': 70.0,   'c_min': None,  'c_max': None},
+
+    # --- Apogee ST-110 Ground Surface Temperature Probe ---
+    'Stmp_Avg':       {'r_min': -40.0, 'r_max': 70.0,   'c_min': None,  'c_max': None},
+    # Alias used in app
+    'stmp_Avg':       {'r_min': -40.0, 'r_max': 70.0,   'c_min': None,  'c_max': None},
+
+    # --- Campbell Scientific Model-109 Ground Temperature Probe ---
+    'Gtmp_Avg':       {'r_min': -50.0, 'r_max': 70.0,   'c_min': None,  'c_max': None},
+    # Alias used in app
+    'gtmp_Avg':       {'r_min': -50.0, 'r_max': 70.0,   'c_min': None,  'c_max': None},
+
+    # --- Campbell Scientific ClimaVUE50 Compact Weather Sensor ---
+    'AirT_C_Avg':     {'r_min': -50.0, 'r_max': 60.0,   'c_min': None,  'c_max': None},
+    'RHT_C_Avg':      {'r_min': -40.0, 'r_max': 60.0,   'c_min': None,  'c_max': None},
+    'RHT_Avg':        {'r_min': -40.0, 'r_max': 60.0,   'c_min': None,  'c_max': None},
+    'SlrFD_W_Avg':    {'r_min': 0.0,   'r_max': 1750.0, 'c_min': 0.0,   'c_max': 1360.0},
+    'Rain_mm_Tot':    {'r_min': 0.0,   'r_max': 100.0,  'c_min': 0.0,   'c_max': 12.5},
+    'Strikes_Tot':    {'r_min': 0.0,   'r_max': 65535.0,'c_min': None,  'c_max': None},
+    'Dist_km_Avg':    {'r_min': 0.0,   'r_max': 40.0,   'c_min': None,  'c_max': None},
+    'WS_ms_Avg':      {'r_min': 0.0,   'r_max': 30.0,   'c_min': None,  'c_max': None},
+    'WindDir':        {'r_min': 0.0,   'r_max': 359.0,  'c_min': None,  'c_max': None},
+    'MaxWS_ms':       {'r_min': 0.0,   'r_max': 30.0,   'c_min': None,  'c_max': None},
+    # Alias
+    'MaxWS_ms_Avg':   {'r_min': 0.0,   'r_max': 30.0,   'c_min': None,  'c_max': None},
+    'VP_hPa_Avg':     {'r_min': 0.0,   'r_max': 47.0,   'c_min': None,  'c_max': None},
+    'RH':             {'r_min': 0.0,   'r_max': 100.0,  'c_min': None,  'c_max': None},
+    'BP_hPa_Avg':     {'r_min': 500.0, 'r_max': 1100.0, 'c_min': None,  'c_max': None},
+    'TiltNS_deg_Avg': {'r_min': -90.0, 'r_max': 90.0,   'c_min': -3.0,  'c_max': 3.0},
+    # Note: sheet uses 'TileWE_deg_Avg' (typo) — we keep both spellings
+    'TiltWE_deg_Avg': {'r_min': -90.0, 'r_max': 90.0,   'c_min': -3.0,  'c_max': 3.0},
+    'TileWE_deg_Avg': {'r_min': -90.0, 'r_max': 90.0,   'c_min': -3.0,  'c_max': 3.0},
+    'SlrTF_MJ_Tot':   {'r_min': 0.0,   'r_max': 1.575,  'c_min': 0.0,   'c_max': 1.215},
+
+    # --- Campbell Scientific SR50 Sonic Ranger ---
+    # DT max = H+5 (sensor-height-dependent) — resolved at runtime; stored as sentinel string
+    'DT_Avg':         {'r_min': 50.0,  'r_max': 'H+5',  'c_min': None,  'c_max': None},
+    'Q_Avg':          {'r_min': 162.0, 'r_max': 600.0,  'c_min': None,  'c_max': 210.0},
+    'TCDT_Avg':       {'r_min': 50.0,  'r_max': 'H+5',  'c_min': None,  'c_max': None},
+    # DBTCDT max = H-50 (sensor-height-dependent)
+    'DBTCDT_Avg':     {'r_min': 0.0,   'r_max': 'H-50', 'c_min': None,  'c_max': None},
+
+    # --- Apogee SN-500 Net Radiometer ---
+    'SWin_Avg':       {'r_min': -10.0, 'r_max': 2000.0, 'c_min': 0.0,   'c_max': 1360.0},
+    'SWout_Avg':      {'r_min': -10.0, 'r_max': 2000.0, 'c_min': 0.0,   'c_max': 1360.0},
+    # LW has no hard R limits per the sheet
+    'LWin_Avg':       {'r_min': None,  'r_max': None,   'c_min': 0.0,   'c_max': 600.0},
+    'LWout_Avg':      {'r_min': None,  'r_max': None,   'c_min': 0.0,   'c_max': 700.0},
+    'SWnet_Avg':      {'r_min': -2000.0,'r_max': 2000.0,'c_min': 0.0,   'c_max': 1360.0},
+    'LWnet_Avg':      {'r_min': -200.0,'r_max': 200.0,  'c_min': -150.0,'c_max': 100.0},
+    'SWalbedo_Avg':   {'r_min': 0.0,   'r_max': 1.0,    'c_min': 0.05,  'c_max': 0.95},
+    'NR_Avg':         {'r_min': -2200.0,'r_max': 2200.0,'c_min': -200.0,'c_max': 1000.0},
+}
+
+# ---------------------------------------------------------------------------
+# DEFAULT_THRESHOLDS — kept for backward compatibility with the instrument-group
+# editor UI (which still uses min/max pairs). Derived from SENSOR_THRESHOLDS r_min/r_max.
+# ---------------------------------------------------------------------------
 DEFAULT_THRESHOLDS = {
-    'BattV_Avg': (10, 16),
-    'PTemp_C_Avg': (-40, 70),
-    'RHT_C_Avg': (-40, 50),
-    'SlrFD_W_Avg': (0, 1350),
-    'Rain_mm_Tot': (0, 33),
-    'Strikes_Tot': (0, 66635),
-    'Dist_km_Avg': (0, 40),
-    'WS_ms_Avg': (0, 30),
-    'WindDir': (0, 360),
-    'AirT_C_Avg': (-50, 60),
-    'VP_hPa_Avg': (0, 470),
-    'BP_hPa_Avg': (850, 1050),
-    'RH': (0, 100),
-    'SlrTF_MJ_Tot': (0, 1.215),
-    'DT_Avg': (50, 171), # Default H=166 + 5
-    'DBTCDT_Avg': (0, 171),
-    'SWin_Avg': (0, 1350), 
-    'SWout_Avg': (0, 'SWin_Avg'),
-    'LWin_Avg': (100, 550),
-    'LWout_Avg': (150, 600),
-    'SWnet_Avg': (0, 1350), 
-    'LWnet_Avg': (-300, 100),
-    'SWalbedo_Avg': (0, 1),
-    'NR_Avg': (-200, 1000),
-    'stmp_Avg': (-50, 60),
-    'gtmp_Avg': (-50, 60), 
+    col: (v['r_min'] if v['r_min'] is not None else -np.inf,
+          v['r_max'] if v['r_max'] is not None and not isinstance(v['r_max'], str) else np.inf)
+    for col, v in SENSOR_THRESHOLDS.items()
 }
 
-# Initial Instrument Definitions
-# If instrument_groups.json doesn't exist, we build it from this list + DEFAULT_THRESHOLDS
+# ---------------------------------------------------------------------------
+# INITIAL_INSTRUMENT_GROUPS — full R/C threshold structure per sensor group.
+# Matches RefSensorThresholds.xlsx exactly.  Each column has:
+#   r_min / r_max  — hard physical limits  (flag R)
+#   c_min / c_max  — soft caution limits   (flag C)
+# None means "no limit for this tier" — the check is skipped.
+# ---------------------------------------------------------------------------
 INITIAL_INSTRUMENT_GROUPS = {
-    'ClimaVue50': [
-        'Rain_mm_Tot', 'Strikes_Tot', 'Dist_km_Avg', 'WS_ms_Avg', 'WindDir',
-        'AirT_C_Avg', 'VP_hPa_Avg', 'BP_hPa_Avg', 'RH', 'SlrFD_W_Avg',
-        'SlrTF_MJ_Tot', 'RHT_C_Avg'
-    ],
-    'SR50': [
-        'DT_Avg', 'DBTCDT_Avg'
-    ],
-    'NetRadiometer': [
-        'SWin_Avg', 'SWout_Avg', 'LWin_Avg', 'LWout_Avg', 'SWnet_Avg',
-        'LWnet_Avg', 'SWalbedo_Avg', 'NR_Avg', 'stmp_Avg', 'gtmp_Avg'
-    ],
-    'System': [
-        'BattV_Avg', 'PTemp_C_Avg'
-    ]
+    'ClimaVue50': {
+        'sensor_height': 180,
+        'thresholds': {
+            'AirT_C_Avg':     {'r_min': -50,   'r_max': 60,    'c_min': None,  'c_max': None},
+            'RHT_Avg':        {'r_min': -40,   'r_max': 60,    'c_min': None,  'c_max': None},
+            'RHT_C_Avg':      {'r_min': -40,   'r_max': 60,    'c_min': None,  'c_max': None},
+            'SlrFD_W_Avg':    {'r_min': 0,     'r_max': 1750,  'c_min': 0,     'c_max': 1360},
+            'Rain_mm_Tot':    {'r_min': 0,     'r_max': 100,   'c_min': 0,     'c_max': 12.5},
+            'Strikes_Tot':    {'r_min': 0,     'r_max': 65535, 'c_min': None,  'c_max': None},
+            'Dist_km_Avg':    {'r_min': 0,     'r_max': 40,    'c_min': None,  'c_max': None},
+            'WS_ms_Avg':      {'r_min': 0,     'r_max': 30,    'c_min': None,  'c_max': None},
+            'WindDir':        {'r_min': 0,     'r_max': 359,   'c_min': None,  'c_max': None},
+            'MaxWS_ms':       {'r_min': 0,     'r_max': 30,    'c_min': None,  'c_max': None},
+            'VP_hPa_Avg':     {'r_min': 0,     'r_max': 47,    'c_min': None,  'c_max': None},
+            'RH':             {'r_min': 0,     'r_max': 100,   'c_min': None,  'c_max': None},
+            'BP_hPa_Avg':     {'r_min': 500,   'r_max': 1100,  'c_min': None,  'c_max': None},
+            'TiltNS_deg_Avg': {'r_min': -90,   'r_max': 90,    'c_min': -3,    'c_max': 3},
+            'TileWE_deg_Avg': {'r_min': -90,   'r_max': 90,    'c_min': -3,    'c_max': 3},
+            'TiltWE_deg_Avg': {'r_min': -90,   'r_max': 90,    'c_min': -3,    'c_max': 3},
+            'SlrTF_MJ_Tot':   {'r_min': 0,     'r_max': 1.575, 'c_min': 0,     'c_max': 1.215},
+        },
+    },
+    'SR50': {
+        'sensor_height': 160,
+        'thresholds': {
+            'DT_Avg':      {'r_min': 50,  'r_max': 1000, 'c_min': None, 'c_max': None},
+            'Q_Avg':       {'r_min': 162, 'r_max': 600,  'c_min': None, 'c_max': 210},
+            'TCDT_Avg':    {'r_min': 50,  'r_max': 1000, 'c_min': None, 'c_max': None},
+            'DBTCDT_Avg':  {'r_min': 0,   'r_max': 110,  'c_min': None, 'c_max': None},
+            # Note: DBTCDT r_max = sensor_height (160) - 50 = 110
+        },
+    },
+    'NetRadiometer': {
+        'sensor_height': 180,
+        'thresholds': {
+            'SWin_Avg':     {'r_min': -10,   'r_max': 2000, 'c_min': 0,    'c_max': 1360},
+            'SWout_Avg':    {'r_min': -10,   'r_max': 2000, 'c_min': 0,    'c_max': 1360},
+            'LWin_Avg':     {'r_min': None,  'r_max': None, 'c_min': 0,    'c_max': 600},
+            'LWout_Avg':    {'r_min': None,  'r_max': None, 'c_min': 0,    'c_max': 700},
+            'SWnet_Avg':    {'r_min': -2000, 'r_max': 2000, 'c_min': 0,    'c_max': 1360},
+            'LWnet_Avg':    {'r_min': -200,  'r_max': 200,  'c_min': -150, 'c_max': 100},
+            'SWalbedo_Avg': {'r_min': 0,     'r_max': 1,    'c_min': 0.05, 'c_max': 0.95},
+            'NR_Avg':       {'r_min': -2200, 'r_max': 2200, 'c_min': -200, 'c_max': 1000},
+            'stmp_Avg':     {'r_min': -40,   'r_max': 70,   'c_min': None, 'c_max': None},
+            'Stmp_Avg':     {'r_min': -40,   'r_max': 70,   'c_min': None, 'c_max': None},
+            'gtmp_Avg':     {'r_min': -50,   'r_max': 70,   'c_min': None, 'c_max': None},
+            'Gtmp_Avg':     {'r_min': -50,   'r_max': 70,   'c_min': None, 'c_max': None},
+        },
+    },
+    'System': {
+        'thresholds': {
+            'BattV_Avg':   {'r_min': -9.6, 'r_max': 19, 'c_min': 10,   'c_max': 16},
+            'PTemp_C_Avg': {'r_min': -40,  'r_max': 70, 'c_min': None, 'c_max': None},
+            'Ptmp_C_Avg':  {'r_min': -40,  'r_max': 70, 'c_min': None, 'c_max': None},
+        },
+    },
 }
 
+# ---------------------------------------------------------------------------
+# DEPENDENCY_CONFIG — propagates flags from source columns to dependent targets.
+# Derived directly from the 'Flags_Depend' and 'Notes' columns of RefSensorThresholds.xlsx.
+#
+# Flag meanings (from FlagLibrary sheet):
+#   R   — hard physical limit breach
+#   C   — soft caution limit breach
+#   E   — sensor-specific error (e.g. -9999 value)
+#   DF  — one or more dependent variables is flagged R, E, or DF
+#   DC  — cautionary dependency (dependent variable is flagged C or T)
+#   T   — sensor tilt exceeds accuracy range (C-range tilt breach, NOT the same as R)
+#   BV  — battery voltage flagged R (propagates to all sensor columns)
+#   PT  — panel temperature flagged R (propagates to all sensor columns)
+#   LR  — logger restart (RECORD sequence restart, propagates to all sensor columns)
+#   NV  — no valid value (e.g. wind direction when wind speed == 0)
+#   Z   — value < 0 at night
+#   SF  — snow-free period (Sep 1 – Jun 30)
+#   DZ  — divide-by-zero (e.g. albedo when SWin < 20 W/m²)
+# ---------------------------------------------------------------------------
 DEPENDENCY_CONFIG = [
-    # ClimaVue50
-    {'target': 'SlrFD_W_Avg', 'sources': ['TiltNS_deg_Avg', 'TiltWE_deg_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
-    {'target': 'Rain_mm_Tot', 'sources': ['TiltNS_deg_Avg', 'TiltWE_deg_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
-    {'target': 'AirT_C_Avg', 'sources': ['SlrFD_W_Avg', 'WS_ms_Avg'], 'trigger_flags': ['T', 'ERR', 'DF'], 'set_flag': 'DF'},
-    {'target': 'VP_hPa_Avg', 'sources': ['RHT_C_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
-    {'target': 'RH', 'sources': ['VP_hPa_Avg', 'AirT_C_Avg'], 'trigger_flags': ['T', 'ERR', 'DF'], 'set_flag': 'DF'},
-    {'target': 'SlrTF_MJ_Tot', 'sources': ['SlrFD_W_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
-    {'target': 'SlrTF_MJ_Tot', 'sources': ['SlrFD_W_Avg'], 'trigger_flags': ['Z'], 'set_flag': 'Z'},
-    # SR50
-    {'target': 'TCDT_Avg', 'sources': ['DT_Avg'], 'trigger_flags': ['T'], 'set_flag': 'DF'},
-    {'target': 'TCDT_Avg', 'sources': ['AirT_C_Avg'], 'trigger_flags': ['T', 'ERR', 'DF'], 'set_flag': 'SU'},
-    {'target': 'DBTCDT_Avg', 'sources': ['TCDT_Avg'], 'trigger_flags': ['T'], 'set_flag': 'DF'},
-    {'target': 'DBTCDT_Avg', 'sources': ['TCDT_Avg'], 'trigger_flags': ['SU'], 'set_flag': 'SU'},
-    # Net Radiometer
-    {'target': 'SWnet_Avg', 'sources': ['SWin_Avg', 'SWout_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
-    {'target': 'SWnet_Avg', 'sources': ['SWin_Avg'], 'trigger_flags': ['Z'], 'set_flag': 'Z'},
-    {'target': 'SWout_Avg', 'sources': ['SWin_Avg'], 'trigger_flags': ['Z'], 'set_flag': 'Z'},
-    {'target': 'LWnet_Avg', 'sources': ['LWin_Avg', 'LWout_Avg'], 'trigger_flags': ['T', 'ERR'], 'set_flag': 'DF'},
-    {'target': 'SWalbedo_Avg', 'sources': ['SWin_Avg', 'SWout_Avg'], 'trigger_flags': ['T', 'ERR', 'DF'], 'set_flag': 'DF'},
-    {'target': 'SWalbedo_Avg', 'sources': ['SWin_Avg'], 'trigger_flags': ['Z'], 'set_flag': 'Z'},
-    {'target': 'NR_Avg', 'sources': ['SWin_Avg', 'SWout_Avg', 'LWin_Avg', 'LWout_Avg'], 'trigger_flags': ['T', 'ERR', 'DF'], 'set_flag': 'DF'},
-    {'target': 'NR_Avg', 'sources': ['SWin_Avg'], 'trigger_flags': ['Z'], 'set_flag': 'Z'},
+    # -----------------------------------------------------------------------
+    # System-level propagation: BV (battery voltage R) → all sensor columns
+    # -----------------------------------------------------------------------
+    # BV is applied programmatically in run_qc_pipeline, not listed per-column here,
+    # because it affects every column. See the BV/PT/LR propagation block in the pipeline.
+
+    # -----------------------------------------------------------------------
+    # ClimaVUE50 — tilt affects solar flux, rain, and derived columns
+    # -----------------------------------------------------------------------
+    # Tilt R (> |90°|) → solar flux gets DC (sensor knocked over)
+    {'target': 'SlrFD_W_Avg',  'sources': ['TiltNS_deg_Avg', 'TileWE_deg_Avg'], 'trigger_flags': ['R'], 'set_flag': 'DC'},
+    # Tilt T or C (> |3°| but < |90°|) → solar flux gets T flag (tilt exceeds accuracy)
+    {'target': 'SlrFD_W_Avg',  'sources': ['TiltNS_deg_Avg', 'TileWE_deg_Avg'], 'trigger_flags': ['T', 'C'], 'set_flag': 'T'},
+    # Tilt R → rain gets DC
+    {'target': 'Rain_mm_Tot',  'sources': ['TiltNS_deg_Avg', 'TileWE_deg_Avg'], 'trigger_flags': ['R'], 'set_flag': 'DC'},
+    # Tilt T or C → rain gets T
+    {'target': 'Rain_mm_Tot',  'sources': ['TiltNS_deg_Avg', 'TileWE_deg_Avg'], 'trigger_flags': ['T', 'C'], 'set_flag': 'T'},
+
+    # ClimaVUE50 — solar flux affects air temperature (energy balance correction)
+    # AirT gets DC if SlrFD_W_Avg is DC or T (per Notes: "flag DC if SlrFD_W_Avg == DC or T")
+    {'target': 'AirT_C_Avg',   'sources': ['SlrFD_W_Avg'],                      'trigger_flags': ['DC', 'T'], 'set_flag': 'DC'},
+    # AirT gets DF if SlrFD_W_Avg or WS_ms_Avg is R, E, or DF
+    {'target': 'AirT_C_Avg',   'sources': ['SlrFD_W_Avg', 'WS_ms_Avg'],         'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
+
+    # ClimaVUE50 — RH probe temperature affects vapour pressure
+    {'target': 'VP_hPa_Avg',   'sources': ['RHT_Avg'],                          'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
+
+    # ClimaVUE50 — VP and AirT affect RH
+    {'target': 'RH',           'sources': ['VP_hPa_Avg', 'AirT_C_Avg'],         'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
+    # RH gets DC if AirT_C_Avg is DC (per Notes: "Flag DC if AirT_C_Avg == DC")
+    {'target': 'RH',           'sources': ['AirT_C_Avg'],                       'trigger_flags': ['DC'], 'set_flag': 'DC'},
+
+    # ClimaVUE50 — solar flux affects total solar flux (SlrTF_MJ_Tot)
+    # SlrTF gets DC if SlrFD_W_Avg is C, T, or DC (per Notes: "DC flag if SlrFD_W_Avg == C, T, DC")
+    {'target': 'SlrTF_MJ_Tot', 'sources': ['SlrFD_W_Avg'],                      'trigger_flags': ['C', 'T', 'DC'], 'set_flag': 'DC'},
+    # SlrTF gets DF if SlrFD_W_Avg is R or E
+    {'target': 'SlrTF_MJ_Tot', 'sources': ['SlrFD_W_Avg'],                      'trigger_flags': ['R', 'E'], 'set_flag': 'DF'},
+    # SlrTF inherits Z from SlrFD_W_Avg
+    {'target': 'SlrTF_MJ_Tot', 'sources': ['SlrFD_W_Avg'],                      'trigger_flags': ['Z'], 'set_flag': 'Z'},
+
+    # ClimaVUE50 — wind direction and gust invalid when wind speed == 0 (NW flag applied in pipeline)
+    {'target': 'WindDir',      'sources': ['WS_ms_Avg'],                         'trigger_flags': ['NW'], 'set_flag': 'NV'},
+    {'target': 'MaxWS_ms',     'sources': ['WS_ms_Avg'],                         'trigger_flags': ['NW'], 'set_flag': 'NV'},
+
+    # ClimaVUE50 — lightning distance invalid when no strikes
+    {'target': 'Dist_km_Avg',  'sources': ['Strikes_Tot'],                       'trigger_flags': ['NV'], 'set_flag': 'NV'},
+
+    # -----------------------------------------------------------------------
+    # SR50 Sonic Ranger
+    # -----------------------------------------------------------------------
+    # DT affects TCDT (DF if DT is R or E)
+    {'target': 'TCDT_Avg',     'sources': ['DT_Avg'],                            'trigger_flags': ['R', 'E'], 'set_flag': 'DF'},
+    # Q (quality) affects TCDT — DC if Q is C (uncertain echo)
+    {'target': 'TCDT_Avg',     'sources': ['Q_Avg'],                             'trigger_flags': ['C'], 'set_flag': 'DC'},
+    # AirT affects TCDT (temperature correction) — DC if AirT is DC
+    {'target': 'TCDT_Avg',     'sources': ['AirT_C_Avg'],                        'trigger_flags': ['DC'], 'set_flag': 'DC'},
+    # AirT affects TCDT — DF if AirT is R, E, or DF
+    {'target': 'TCDT_Avg',     'sources': ['AirT_C_Avg'],                        'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
+
+    # TCDT affects snow depth (DBTCDT)
+    {'target': 'DBTCDT_Avg',   'sources': ['TCDT_Avg'],                          'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
+    # DBTCDT gets DC if TCDT is DC (per Notes: "Flag DC if TCDT == DC")
+    {'target': 'DBTCDT_Avg',   'sources': ['TCDT_Avg'],                          'trigger_flags': ['DC'], 'set_flag': 'DC'},
+
+    # -----------------------------------------------------------------------
+    # SN-500 Net Radiometer
+    # -----------------------------------------------------------------------
+    # SWin/SWout affect SWnet — DF if R or E
+    {'target': 'SWnet_Avg',    'sources': ['SWin_Avg', 'SWout_Avg'],             'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
+    # SWnet gets DC if SWin or SWout is C (per Notes: "Flag DC if SWout_Avg OR SWin_Avg == C")
+    {'target': 'SWnet_Avg',    'sources': ['SWin_Avg', 'SWout_Avg'],             'trigger_flags': ['C'], 'set_flag': 'DC'},
+    # SWnet inherits Z from SWin
+    {'target': 'SWnet_Avg',    'sources': ['SWin_Avg'],                          'trigger_flags': ['Z'], 'set_flag': 'Z'},
+    # SWout inherits Z from SWin
+    {'target': 'SWout_Avg',    'sources': ['SWin_Avg'],                          'trigger_flags': ['Z'], 'set_flag': 'Z'},
+
+    # LWin/LWout affect LWnet — DF if R or E
+    {'target': 'LWnet_Avg',    'sources': ['LWin_Avg', 'LWout_Avg'],             'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
+    # LWnet gets DC if LWin or LWout is C (per Notes: "flag DC if LWin_Avg OR LWout_Avg == C")
+    {'target': 'LWnet_Avg',    'sources': ['LWin_Avg', 'LWout_Avg'],             'trigger_flags': ['C'], 'set_flag': 'DC'},
+
+    # SWin/SWout affect albedo — DF if R or E
+    {'target': 'SWalbedo_Avg', 'sources': ['SWin_Avg', 'SWout_Avg'],             'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
+    # Albedo gets DC if SWin or SWout is C (per Notes: "Flag DC if SWout_Avg OR SWin_Avg == C")
+    {'target': 'SWalbedo_Avg', 'sources': ['SWin_Avg', 'SWout_Avg'],             'trigger_flags': ['C'], 'set_flag': 'DC'},
+    # Albedo inherits Z from SWin
+    {'target': 'SWalbedo_Avg', 'sources': ['SWin_Avg'],                          'trigger_flags': ['Z'], 'set_flag': 'Z'},
+    # DZ is applied programmatically in the pipeline (SWin < 20 W/m²), not via dependency propagation
+
+    # NR_Avg depends on all four radiation components
+    {'target': 'NR_Avg',       'sources': ['SWin_Avg', 'SWout_Avg', 'LWin_Avg', 'LWout_Avg'], 'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
+    # NR gets DC if any component is C (per Notes: "Flag DC if SWin, SWout, LWin, LWout == C")
+    {'target': 'NR_Avg',       'sources': ['SWin_Avg', 'SWout_Avg', 'LWin_Avg', 'LWout_Avg'], 'trigger_flags': ['C'], 'set_flag': 'DC'},
 ]
 
+# Solar columns that get the nighttime Z-flag check
 SOLAR_COLUMNS = ['SlrFD_W_Avg', 'SWin_Avg']
 
+# Columns that receive the manual 'C' (caution) flag when the user ticks
+# "Add Caution Flag" in the ingestion UI — covers all sensor data columns.
 ADD_CAUTION_FLAG = [
-    'BattV_Avg', 'PTemp_C_Avg', 'SlrFD_W_Avg', 'Dist_km_Avg', 'WS_ms_Avg', 
-    'MaxWS_ms_Avg', 'AirT_C_Avg', 'VP_hPa_Avg', 'BP_hPa_Avg', 'RHT_C_Avg', 
-    'TiltNS_deg_Avg', 'TiltWE_deg_Avg', 'Invalid_Wind_Avg', 'DT_Avg', 
-    'TCDT_Avg', 'DBTCDT_Avg', 'SWin_Avg', 'SWout_Avg', 'LWin_Avg', 
-    'LWout_Avg', 'SWnet_Avg', 'LWnet_Avg', 'SWalbedo_Avg', 'NR_Avg', 
-    'stmp_Avg', 'gtmp_Avg'
+    'BattV_Avg', 'PTemp_C_Avg', 'Ptmp_C_Avg', 'SlrFD_W_Avg', 'Dist_km_Avg',
+    'WS_ms_Avg', 'MaxWS_ms', 'MaxWS_ms_Avg', 'AirT_C_Avg', 'VP_hPa_Avg',
+    'BP_hPa_Avg', 'RHT_C_Avg', 'RHT_Avg', 'TiltNS_deg_Avg', 'TiltWE_deg_Avg',
+    'TileWE_deg_Avg', 'DT_Avg', 'Q_Avg', 'TCDT_Avg', 'DBTCDT_Avg',
+    'SWin_Avg', 'SWout_Avg', 'LWin_Avg', 'LWout_Avg', 'SWnet_Avg',
+    'LWnet_Avg', 'SWalbedo_Avg', 'NR_Avg', 'stmp_Avg', 'gtmp_Avg',
+    'Stmp_Avg', 'Gtmp_Avg',
 ]
 
 # --- Helper Functions ---
@@ -137,24 +326,19 @@ def save_mapping(mapping):
     save_json_file(MAPPING_FILE, mapping)
 
 def load_instrument_groups():
+    """
+    Loads instrument group configs from GROUPS_FILE.
+    If file is empty or missing, seeds it with INITIAL_INSTRUMENT_GROUPS
+    (which already contains the full R/C threshold structure).
+    """
     groups = load_json_file(GROUPS_FILE, {})
     if not groups:
-        # Initialize defaults if empty
-        # Map list of cols to actual thresholds structure
-        for grp_name, cols in INITIAL_INSTRUMENT_GROUPS.items():
-            grp_data = {
-                "sensor_height": 166,  # Default sensor height in cm
-                "thresholds": {}
-            }
-            for col in cols:
-                # Use current defaults for initial values
-                if col in DEFAULT_THRESHOLDS:
-                    grp_data["thresholds"][col] = DEFAULT_THRESHOLDS[col]
-            groups[grp_name] = grp_data
-        
-        # Save the initialized groups so user can edit them
+        # Deep-copy the initial structure so mutations don't affect the constant
+        import copy
+        groups = copy.deepcopy(INITIAL_INSTRUMENT_GROUPS)
         save_json_file(GROUPS_FILE, groups)
     return groups
+
 
 def save_instrument_groups(groups):
     save_json_file(GROUPS_FILE, groups)
@@ -273,6 +457,161 @@ def parse_field_report(pdf_file):
         pdf_file.seek(0)
         
     return parsed_data
+
+def parse_metadata_log(xlsx_file, raw_filename=None, df_timestamps=None):
+    """
+    Parses a MetadataLog.xlsx file (EventLog sheet) and extracts three things:
+
+    1. visit_windows  — list of (datetime_in, datetime_out) tuples from 'Site Visit' rows.
+                        Only windows whose time_in timestamp actually exists in df_timestamps
+                        are returned (prevents flagging periods outside the data file).
+                        If time_out < time_in on the same day, the out-time is rolled to
+                        the next calendar day (handles the 'Time out is the next day' note).
+
+    2. data_id        — the Data/Visit/Script_ID from the 'Data Download' row whose
+                        File_name matches raw_filename (case-insensitive, no extension).
+                        Falls back to None if no match is found.
+
+    3. script_id      — the Data/Visit/Script_ID from the most recent 'Script Change' row
+                        on or before the download date of the matched Data Download row.
+                        Falls back to None if no Script Change rows exist.
+
+    Args:
+        xlsx_file    : file-like object for MetadataLog.xlsx
+        raw_filename : str, name of the raw data file being processed (used to match Data_ID)
+        df_timestamps: pd.Series of datetime values from the raw data file (used to validate
+                       that visit windows actually overlap with the file's data range)
+
+    Returns:
+        dict with keys 'visit_windows', 'data_id', 'script_id'
+    """
+    result = {'visit_windows': [], 'data_id': None, 'script_id': None}
+
+    # Guard: openpyxl must be available
+    if openpyxl is None:
+        st.error("openpyxl is not installed. Run: pip install openpyxl")
+        return result
+
+    try:
+        wb = openpyxl.load_workbook(xlsx_file, data_only=True)
+
+        # The EventLog sheet holds all event rows
+        if 'EventLog' not in wb.sheetnames:
+            st.warning("MetadataLog.xlsx does not contain an 'EventLog' sheet.")
+            return result
+
+        ws = wb['EventLog']
+
+        # Read all rows into a list of dicts keyed by the header row
+        headers = [cell.value for cell in ws[1]]
+        rows = []
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            # Skip completely empty rows
+            if all(v is None for v in row):
+                continue
+            rows.append(dict(zip(headers, row)))
+
+        # Helper: safely parse a time value from the cell (datetime.time or 'NULL' string)
+        def _to_time(val):
+            """Return a datetime.time or None."""
+            if val is None or str(val).strip().upper() == 'NULL':
+                return None
+            if hasattr(val, 'hour'):  # already a datetime.time
+                return val
+            # Try parsing string like 'HH:MM'
+            try:
+                return datetime.strptime(str(val).strip(), '%H:%M').time()
+            except ValueError:
+                return None
+
+        # Helper: combine a date + time into a datetime, with next-day roll if needed
+        def _combine(date_val, time_val, reference_time=None):
+            """
+            Combine a date (datetime or date) and a time into a datetime.
+            If reference_time is provided and time_val < reference_time,
+            the date is rolled forward by one day (handles 'next day' time-out).
+            """
+            if date_val is None or time_val is None:
+                return None
+            # Normalise date_val to a date object
+            if hasattr(date_val, 'date'):
+                base_date = date_val.date()
+            else:
+                base_date = date_val
+            dt = datetime.combine(base_date, time_val)
+            # Auto-roll: if time_out < time_in, the visit ended the next calendar day
+            if reference_time is not None and time_val < reference_time:
+                dt += timedelta(days=1)
+            return dt
+
+        # Determine the data file's timestamp range for validation
+        ts_min = df_timestamps.min() if df_timestamps is not None and len(df_timestamps) > 0 else None
+        ts_max = df_timestamps.max() if df_timestamps is not None and len(df_timestamps) > 0 else None
+
+        # --- 1. Extract visit windows from 'Site Visit' rows ---
+        for row in rows:
+            if str(row.get('Event_type', '')).strip() != 'Site Visit':
+                continue
+
+            date_val  = row.get('Date')
+            time_in   = _to_time(row.get('Time-in'))
+            time_out  = _to_time(row.get('Time-out'))
+
+            if date_val is None or time_in is None or time_out is None:
+                continue  # skip rows with missing time data
+
+            dt_in  = _combine(date_val, time_in)
+            dt_out = _combine(date_val, time_out, reference_time=time_in)
+
+            # Validate: only include this window if it overlaps with the data file's range.
+            # If we have no timestamp info, include all windows (conservative).
+            if ts_min is not None and ts_max is not None:
+                # Window must overlap [ts_min, ts_max]
+                if dt_out < ts_min or dt_in > ts_max:
+                    continue  # visit is entirely outside this file's date range
+
+            result['visit_windows'].append((dt_in, dt_out))
+
+        # --- 2. Find Data_ID matching the raw filename ---
+        # Strip path and extension for a loose match
+        raw_stem = os.path.splitext(os.path.basename(raw_filename or ''))[0].lower()
+        matched_download_date = None
+
+        for row in rows:
+            if str(row.get('Event_type', '')).strip() != 'Data Download':
+                continue
+            file_name_cell = str(row.get('File_name', '') or '').strip()
+            cell_stem = os.path.splitext(file_name_cell)[0].lower()
+            if raw_stem and (raw_stem == cell_stem or raw_stem in cell_stem or cell_stem in raw_stem):
+                result['data_id'] = str(row.get('Data/Visit/Script_ID', '') or '').strip() or None
+                matched_download_date = row.get('Date')
+                break  # use first match
+
+        # --- 3. Find Script_ID from most recent 'Script Change' on or before download date ---
+        script_rows = [
+            r for r in rows
+            if str(r.get('Event_type', '')).strip() == 'Script Change'
+            and r.get('Date') is not None
+        ]
+
+        if script_rows and matched_download_date is not None:
+            # Normalise dates for comparison
+            def _to_date(v):
+                return v.date() if hasattr(v, 'date') else v
+
+            download_date = _to_date(matched_download_date)
+            # Keep only script changes on or before the download date
+            eligible = [r for r in script_rows if _to_date(r['Date']) <= download_date]
+            if eligible:
+                # Most recent = largest date
+                latest = max(eligible, key=lambda r: _to_date(r['Date']))
+                result['script_id'] = str(latest.get('Data/Visit/Script_ID', '') or '').strip() or None
+
+    except Exception as e:
+        st.warning(f"Error parsing MetadataLog: {e}")
+
+    return result
+
 
 def process_file_data(uploaded_file, mapping, metadata, data_id, station_id):
     """
@@ -576,47 +915,123 @@ def main():
                     
                     # Metadata Auto-Parse
                     # Note: Need unique keys for widgets
-                    # Reading file metadata
-                    # We only parse if not already in session state? Or just parse every time for simplicity.
-                    meta = parse_toa5_header(file)  
-                    
+                    # Parse TOA5 header for logger metadata (model, serial, OS, script)
+                    meta = parse_toa5_header(file)
+
+                    # ------------------------------------------------------------------
+                    # MetadataLog Auto-fill
+                    # Upload the station's MetadataLog.xlsx to automatically populate:
+                    #   - Data ID   (from 'Data Download' rows matching this file)
+                    #   - Logger Script (from the most recent 'Script Change' row)
+                    #   - Field Visit windows (from all 'Site Visit' rows in range)
+                    # All values remain editable below.
+                    # ------------------------------------------------------------------
+                    st.caption("📋 MetadataLog Auto-fill (Optional)")
+                    meta_log_file = st.file_uploader(
+                        "Upload MetadataLog.xlsx for this station",
+                        type=["xlsx"],
+                        key=f"metalog_{i}",
+                        help="Uploads the station MetadataLog.xlsx to auto-fill Data ID, Logger Script, and Field Visit windows."
+                    )
+
+                    # Defaults before any auto-fill
+                    auto_data_id     = ""
+                    auto_script_id   = meta['logger_script']  # fall back to TOA5 header
+                    auto_visit_windows = []  # list of (datetime_in, datetime_out)
+
+                    if meta_log_file:
+                        # We need the file's timestamps to validate visit windows.
+                        # Do a quick read of just the TIMESTAMP column for range checking.
+                        try:
+                            file.seek(0)
+                            _ts_df = pd.read_csv(
+                                file,
+                                skiprows=[0, 2, 3],
+                                usecols=['TIMESTAMP'],
+                                na_values=['NAN', '"NAN"', ''],
+                                keep_default_na=True,
+                                low_memory=False
+                            )
+                            _ts_series = pd.to_datetime(_ts_df['TIMESTAMP'], errors='coerce').dropna()
+                            file.seek(0)  # reset for later full read
+                        except Exception:
+                            _ts_series = pd.Series([], dtype='datetime64[ns]')
+                            file.seek(0)
+
+                        # Parse the MetadataLog
+                        parsed_meta = parse_metadata_log(
+                            meta_log_file,
+                            raw_filename=file.name,
+                            df_timestamps=_ts_series
+                        )
+
+                        # Apply auto-filled values
+                        if parsed_meta['data_id']:
+                            auto_data_id = parsed_meta['data_id']
+                            st.success(f"✅ Data ID auto-filled: **{auto_data_id}**")
+                        if parsed_meta['script_id']:
+                            auto_script_id = parsed_meta['script_id']
+                            st.success(f"✅ Logger Script auto-filled: **{auto_script_id}**")
+                        if parsed_meta['visit_windows']:
+                            auto_visit_windows = parsed_meta['visit_windows']
+                            st.success(
+                                f"✅ {len(auto_visit_windows)} field visit window(s) found in MetadataLog "
+                                f"that overlap this file's date range."
+                            )
+                        else:
+                            st.info("ℹ️ No field visit windows found in MetadataLog that overlap this file's date range.")
+
+                    # ------------------------------------------------------------------
+                    # Editable metadata fields (auto-filled above, but user can override)
+                    # ------------------------------------------------------------------
                     with col1:
-                        # Allow Empty Data ID -> Defaults to 999
-                        did_val = st.text_input(f"Data ID ({file.name})", value="", key=f"did_{i}")
-                        data_id = did_val if did_val.strip() else "999"
+                        # Data ID: auto-filled from MetadataLog, editable override
+                        did_val = st.text_input(
+                            f"Data ID ({file.name})",
+                            value=auto_data_id,
+                            key=f"did_{i}",
+                            help="Auto-filled from MetadataLog 'Data Download' row. Edit if needed."
+                        )
+                        data_id = did_val.strip() if did_val.strip() else "999"
 
                         logger_id = st.text_input(f"Logger ID", value=meta['logger_id'], key=f"lid_{i}")
-                        
+
                     with col2:
-                        logger_script = st.text_input(f"Logger Script", value=meta['logger_script'], key=f"lsc_{i}")
+                        # Logger Script: auto-filled from MetadataLog 'Script Change' row
+                        logger_script = st.text_input(
+                            f"Logger Script",
+                            value=auto_script_id,
+                            key=f"lsc_{i}",
+                            help="Auto-filled from MetadataLog 'Script Change' row. Edit if needed."
+                        )
                         logger_soft = st.text_input(f"Logger Software", value=meta['logger_software'], key=f"lsw_{i}")
 
                     # Caution Flag Option
                     add_caution = st.checkbox(f"Add Caution Flag (C) to all data columns", key=f"caution_{i}")
 
-                    # Field Visits (Optional)
-                    st.caption("Field Visit (Optional - Leave blank if none)")
-                    
-                    # PDF Uploader for Auto-fill
-                    fv_pdf = st.file_uploader("Upload Field Report (PDF) to Auto-fill", type=["pdf"], key=f"fv_pdf_{i}")
-                    
-                    default_in = ""
-                    default_out = ""
-                    
-                    if fv_pdf:
-                        parsed = parse_field_report(fv_pdf)
-                        if parsed.get('field_in'):
-                            default_in = parsed['field_in']
-                            st.success(f"Found Field In: {default_in}")
-                        if parsed.get('field_out'):
-                            default_out = parsed['field_out']
-                            st.success(f"Found Field Out: {default_out}")
-                            
-                    fv_col1, fv_col2 = st.columns(2)
-                    with fv_col1:
-                        fv_in = st.text_input("Field In (YYYY-MM-DD HH:MM)", value=default_in, key=f"fi_{i}")
-                    with fv_col2:
-                        fv_out = st.text_input("Field Out (YYYY-MM-DD HH:MM)", value=default_out, key=f"fo_{i}")
+                    # ------------------------------------------------------------------
+                    # Field Visit Windows
+                    # Auto-populated from MetadataLog. User can also add manual windows.
+                    # ------------------------------------------------------------------
+                    st.caption("🏕️ Field Visit Windows (V flag)")
+
+                    # Show auto-detected windows as read-only info
+                    if auto_visit_windows:
+                        st.write("**Auto-detected from MetadataLog:**")
+                        for vw_in, vw_out in auto_visit_windows:
+                            st.write(f"  • {vw_in.strftime('%Y-%m-%d %H:%M')} → {vw_out.strftime('%Y-%m-%d %H:%M')}")
+
+                    # Manual override / additional window (use checkbox, not expander — can't nest expanders)
+                    show_manual_fv = st.checkbox("➕ Add a manual field visit window", key=f"show_fv_{i}")
+                    if show_manual_fv:
+                        fv_col1, fv_col2 = st.columns(2)
+                        with fv_col1:
+                            fv_in = st.text_input("Field In (YYYY-MM-DD HH:MM)", value="", key=f"fi_{i}")
+                        with fv_col2:
+                            fv_out = st.text_input("Field Out (YYYY-MM-DD HH:MM)", value="", key=f"fo_{i}")
+                    else:
+                        fv_in, fv_out = "", ""
+
 
                     
                     # Preview & Mapping
@@ -685,19 +1100,26 @@ def main():
                                 final_mapping[row['Source']] = "REMOVE"
                     
                     # Save Config
+                    # Build the combined list of visit windows:
+                    #   - auto_visit_windows: from MetadataLog (already validated against file range)
+                    #   - manual window: from the text inputs below (if both fields filled)
+                    combined_visit_windows = list(auto_visit_windows)  # copy MetadataLog windows
+                    if fv_in and fv_out:
+                        combined_visit_windows.append((fv_in, fv_out))  # add manual window
+
                     processed_file_configs.append({
                         "file": file,
                         "data_id": data_id,
                         "meta": {
-                            "Logger_ID": logger_id, 
-                            "Logger_Script": logger_script, 
+                            "Logger_ID": logger_id,
+                            "Logger_Script": logger_script,
                             "Logger_Software": logger_soft
                         },
-                        "field_visit": (fv_in, fv_out) if fv_in and fv_out else None,
-                        "field_visit": (fv_in, fv_out) if fv_in and fv_out else None,
+                        "visit_windows": combined_visit_windows,  # list of (in, out) tuples
                         "mapping": final_mapping,
                         "add_caution": add_caution
                     })
+
 
             # --- Processing Button ---
             if st.button("Process & Concatenate Datasets", type="primary"):
@@ -773,19 +1195,20 @@ def main():
                             
                             data_cols = [c for c in df_final.columns if c not in meta_cols and c != 'TIMESTAMP' and c != 'RECORD']
                             
-                            # Collect all field visits
+                            # Collect all field visit windows from all uploaded files.
+                            # Each entry is either:
+                            #   (datetime, datetime)  — from MetadataLog auto-parse
+                            #   (str, str)            — from manual text input
                             all_field_visits = []
                             for cfg in processed_file_configs:
-                                if cfg['field_visit']:
-                                    all_field_visits.append(cfg['field_visit'])
-                                    
+                                for window in cfg.get('visit_windows', []):
+                                    all_field_visits.append(window)
+
                             for col in data_cols:
-                                # Skip metadata-like cols
-                                if col.endswith('_Flag') or col == "RECORD": 
+                                # Skip flag columns and RECORD (handled separately)
+                                if col.endswith('_Flag') or col == "RECORD":
                                     continue
-                                    
-                                    continue
-                                    
+
                                 flag_col = f"{col}_Flag"
                                 # Don't overwrite existing flags (e.g. C from file processing)
                                 if flag_col not in df_final.columns:
@@ -818,20 +1241,35 @@ def main():
                                 df_final.loc[mask_m, flag_col] = "M"
                                 
                                 # V Logic (Field Visits)
+                                # Handles both datetime objects (from MetadataLog) and strings (manual input).
                                 for f_in, f_out in all_field_visits:
                                     try:
-                                        t_start = pd.to_datetime(f_in).floor('15T')
-                                        t_end = pd.to_datetime(f_out).ceil('15T')
-                                        
-                                        mask_visit = (df_final['TIMESTAMP'] >= t_start) & (df_final['TIMESTAMP'] <= t_end)
-                                        
-                                        # Append V
-                                        current_flags = df_final.loc[mask_visit, flag_col]
-                                        new_flags = np.where(current_flags == "", "V", current_flags + ", V")
+                                        # Convert to datetime if they came in as strings
+                                        dt_in  = f_in  if isinstance(f_in,  datetime) else pd.to_datetime(f_in)
+                                        dt_out = f_out if isinstance(f_out, datetime) else pd.to_datetime(f_out)
+
+                                        # Round in DOWN to nearest 15-min interval
+                                        t_start = pd.Timestamp(dt_in).floor('15min')
+                                        # Round out UP to next 15-min interval
+                                        t_end   = pd.Timestamp(dt_out).ceil('15min')
+
+                                        mask_visit = (
+                                            (df_final['TIMESTAMP'] >= t_start) &
+                                            (df_final['TIMESTAMP'] <= t_end)
+                                        )
+
+                                        # Append V flag (avoid duplicates)
+                                        current_flags = df_final.loc[mask_visit, flag_col].fillna("").astype(str)
+                                        new_flags = np.where(
+                                            current_flags.str.contains(r'\bV\b', regex=True),
+                                            current_flags,  # already has V, leave it
+                                            np.where(current_flags == "", "V", current_flags + ", V")
+                                        )
                                         df_final.loc[mask_visit, flag_col] = new_flags
-                                        
+
                                     except Exception as e:
-                                        st.warning(f"Invalid Field Visit Time: {f_in} - {f_out}")
+                                        st.warning(f"Invalid Field Visit Time: {f_in} – {f_out}: {e}")
+
 
                             # Reorder Columns
                             # Interleave Data and Flags
@@ -973,27 +1411,36 @@ def main():
                         
                         # Threshold Editor for Selected Cols
                         if selected_cols:
-                            st.caption("Set Thresholds for this Group:")
+                            st.caption("Set Thresholds for this Group (R = hard limit, C = soft caution):")
                             edit_data = []
                             for c in selected_cols:
-                                # Get existing or default or empty
+                                # Extract R/C limits from new dict format, legacy [min,max], or defaults
                                 if c in current_thresholds:
                                     val = current_thresholds[c]
-                                    if isinstance(val, list) or isinstance(val, tuple):
-                                        cur_min, cur_max = val[0], val[1]
+                                    if isinstance(val, dict):
+                                        cur_r_min = val.get('r_min') if val.get('r_min') is not None else ''
+                                        cur_r_max = val.get('r_max') if val.get('r_max') is not None else ''
+                                        cur_c_min = val.get('c_min') if val.get('c_min') is not None else ''
+                                        cur_c_max = val.get('c_max') if val.get('c_max') is not None else ''
+                                    elif isinstance(val, (list, tuple)) and len(val) >= 2:
+                                        cur_r_min, cur_r_max = val[0], val[1]
+                                        cur_c_min, cur_c_max = '', ''
                                     else:
-                                        cur_min, cur_max = 0, 0
-                                elif c in DEFAULT_THRESHOLDS:
-                                    cur_min, cur_max = DEFAULT_THRESHOLDS[c]
+                                        cur_r_min, cur_r_max, cur_c_min, cur_c_max = '', '', '', ''
+                                elif c in SENSOR_THRESHOLDS:
+                                    spec = SENSOR_THRESHOLDS[c]
+                                    cur_r_min = spec.get('r_min') if spec.get('r_min') is not None else ''
+                                    cur_r_max = spec.get('r_max') if spec.get('r_max') is not None else ''
+                                    cur_c_min = spec.get('c_min') if spec.get('c_min') is not None else ''
+                                    cur_c_max = spec.get('c_max') if spec.get('c_max') is not None else ''
                                 else:
-                                    cur_min, cur_max = 0, 0
+                                    cur_r_min, cur_r_max, cur_c_min, cur_c_max = '', '', '', ''
                                 
-                                # Override Max for sensor-height-dependent columns
-                                # This makes the Max reactive to the sensor height input above
-                                if c == 'DT_Avg' or c == 'DBTCDT_Avg':
-                                    cur_max = grp_sensor_height + 5
-                                
-                                edit_data.append({"Column": c, "Min": cur_min, "Max": cur_max})
+                                edit_data.append({
+                                    "Column": c,
+                                    "R Min": cur_r_min, "R Max": cur_r_max,
+                                    "C Min": cur_c_min, "C Max": cur_c_max,
+                                })
                             
                             grp_df = pd.DataFrame(edit_data)
                             
@@ -1016,7 +1463,20 @@ def main():
                             if st.button("Save Group"):
                                 new_thresholds = {}
                                 for idx, row in edited_grp_df.iterrows():
-                                    new_thresholds[row['Column']] = (row['Min'], row['Max'])
+                                    # Convert empty strings back to None for the R/C dict
+                                    def _to_num_or_none(x):
+                                        if x == '' or x is None or (isinstance(x, float) and np.isnan(x)):
+                                            return None
+                                        try:
+                                            return float(x)
+                                        except (ValueError, TypeError):
+                                            return None
+                                    new_thresholds[row['Column']] = {
+                                        'r_min': _to_num_or_none(row.get('R Min')),
+                                        'r_max': _to_num_or_none(row.get('R Max')),
+                                        'c_min': _to_num_or_none(row.get('C Min')),
+                                        'c_max': _to_num_or_none(row.get('C Max')),
+                                    }
                                 
                                 # Save with new structure
                                 groups[grp_name] = {
@@ -1108,24 +1568,41 @@ def main():
                 st.write(f"**Active Group:** {active_grp_name}")
                 st.write(f"**Sensor Height:** {active_sensor_height} cm")
                 
-                # Build Comparison Table
+                # Build Comparison Table — show R and C limits side by side
                 preview_data = []
-                for k, v in DEFAULT_THRESHOLDS.items():
-                    # Default
-                    def_min, def_max = v
+                for k, v in SENSOR_THRESHOLDS.items():
+                    # Default from SENSOR_THRESHOLDS
+                    def_r_min = v.get('r_min', '')
+                    def_r_max = v.get('r_max', '')
+                    def_c_min = v.get('c_min', '')
+                    def_c_max = v.get('c_max', '')
                     
-                    # Override
+                    # Override from active instrument group
                     if k in active_grp_thresholds:
-                        act_min, act_max = active_grp_thresholds[k]
+                        grp_spec = active_grp_thresholds[k]
+                        if isinstance(grp_spec, dict):
+                            act_r_min = grp_spec.get('r_min', def_r_min)
+                            act_r_max = grp_spec.get('r_max', def_r_max)
+                            act_c_min = grp_spec.get('c_min', def_c_min)
+                            act_c_max = grp_spec.get('c_max', def_c_max)
+                        elif isinstance(grp_spec, (list, tuple)) and len(grp_spec) >= 2:
+                            act_r_min, act_r_max = grp_spec[0], grp_spec[1]
+                            act_c_min, act_c_max = def_c_min, def_c_max
+                        else:
+                            act_r_min, act_r_max = def_r_min, def_r_max
+                            act_c_min, act_c_max = def_c_min, def_c_max
                         source = "Instrument Group"
                     else:
-                        act_min, act_max = def_min, def_max
+                        act_r_min, act_r_max = def_r_min, def_r_max
+                        act_c_min, act_c_max = def_c_min, def_c_max
                         source = "Default"
-                        
+                    
+                    # Format None as '—'
+                    fmt = lambda x: '—' if x is None or x == '' else str(x)
                     preview_data.append({
                         "Column": k,
-                        "Effective Min": str(act_min),
-                        "Effective Max": str(act_max),
+                        "R Min": fmt(act_r_min), "R Max": fmt(act_r_max),
+                        "C Min": fmt(act_c_min), "C Max": fmt(act_c_max),
                         "Source": source
                     })
                 
@@ -1152,107 +1629,227 @@ def main():
                 station_lon = station_data.get("longitude", -125.6417)
 
                 
-                # 1. Apply Thresholds
-                # Identify columns to check: All vars in DataFrame that aren't flags/meta
-                qc_cols = [c for c in df.columns if not c.endswith('_Flag') and c not in ['TIMESTAMP', 'RECORD', 'Data_ID', 'Station_ID', 'Logger_ID', 'Logger_Script', 'Logger_Software']]
-                
-                # Helper to resolve value/col reference
-                def resolve_val(v, data_slice):
-                    if isinstance(v, str) and v in data_slice.columns:
-                        return pd.to_numeric(data_slice[v], errors='coerce')
+                # 1. Apply Thresholds — dual-tier R (hard) and C (soft/caution)
+                # ---------------------------------------------------------------
+                # For each data column we:
+                #   a) Look up r_min/r_max from SENSOR_THRESHOLDS (hard limits → flag R)
+                #   b) Look up c_min/c_max from SENSOR_THRESHOLDS (soft limits → flag C)
+                #   c) Apply time-varying overrides from instrument-group deployments
+                #      (deployments store a single min/max pair used as the R limit)
+                #   d) Skip a tier entirely if both its limits are None
+                # ---------------------------------------------------------------
+
+                # Helper: resolve a limit value that may be a column reference or sentinel string
+                def resolve_limit(v, data_slice, sensor_height):
+                    """
+                    Resolves a threshold value to a numeric scalar or Series.
+                    Handles:
+                      - None          → returns None (skip this limit)
+                      - 'H+5'         → sensor_height + 5
+                      - 'H-50'        → sensor_height - 50
+                      - column name   → numeric Series from that column
+                      - numeric       → returned as-is
+                    """
+                    if v is None:
+                        return None
+                    if isinstance(v, str):
+                        if v == 'H+5':
+                            return sensor_height + 5
+                        if v == 'H-50':
+                            return sensor_height - 50
+                        if v in data_slice.columns:
+                            return pd.to_numeric(data_slice[v], errors='coerce')
                     return v
 
-                for col in qc_cols:
-                    # Determine Base Thresholds (from UI editor)
-                    if col in active_thresholds:
-                         base_min, base_max = active_thresholds[col]
-                    else:
-                        # If not in Base and not in any Group, skip
-                        # Optimization: check if any group has it
-                        def get_group_thresholds(g):
-                            if isinstance(g, dict) and "thresholds" in g:
-                                return g["thresholds"]
-                            return g
-                        relevant_deps = [d for d in current_deps if col in get_group_thresholds(instr_groups.get(d['group'], {}))]
-                        if not relevant_deps:
-                            continue
-                        base_min, base_max = -np.inf, np.inf
+                # Helper: append a flag token to a flag column, skipping rows already flagged M/ERR
+                def _append_flag(df, flag_col, mask, token):
+                    """Appends token to flag_col for rows where mask is True, skipping M/ERR rows."""
+                    if not mask.any():
+                        return
+                    curr = df[flag_col].fillna("").astype(str)
+                    # Don't overwrite M or ERR rows
+                    skip = curr.str.contains(r'\bM\b|\bERR\b', regex=True)
+                    apply_mask = mask & ~skip
+                    if not apply_mask.any():
+                        return
+                    targets = curr.loc[apply_mask]
+                    pat = rf'\b{token}\b'
+                    already = targets.str.contains(pat, regex=True)
+                    new_flags = np.where(
+                        already,
+                        targets,
+                        np.where(targets == "", token, targets + ", " + token)
+                    )
+                    df.loc[apply_mask, flag_col] = new_flags
 
-                    # Initialize Limits with Base
-                    # We use Series to handle row-by-row variations
-                    vals = pd.to_numeric(df[col], errors='coerce')
-                    
-                    # Optimization: If no deployments override this column, use vector calc
-                    def get_group_thresholds(g):
-                        if isinstance(g, dict) and "thresholds" in g:
-                            return g["thresholds"]
-                        return g
-                    relevant_deps = [d for d in current_deps if col in get_group_thresholds(instr_groups.get(d['group'], {}))]
-                    
-                    if not relevant_deps:
-                         limit_min = resolve_val(base_min, df)
-                         limit_max = resolve_val(base_max, df)
-                         mask_fail = (vals < limit_min) | (vals > limit_max)
+                # Helper: extract thresholds dict from an instrument-group entry
+                def _get_grp_thresholds(grp_data):
+                    if isinstance(grp_data, dict) and "thresholds" in grp_data:
+                        return grp_data["thresholds"], grp_data.get("sensor_height", 166)
+                    return grp_data, 166
+
+                # Identify columns to QC
+                qc_cols = [
+                    c for c in df.columns
+                    if not c.endswith('_Flag')
+                    and c not in ['TIMESTAMP', 'RECORD', 'Data_ID', 'Station_ID',
+                                  'Logger_ID', 'Logger_Script', 'Logger_Software']
+                ]
+
+                for col in qc_cols:
+                    # --- Determine base R and C limits from SENSOR_THRESHOLDS ---
+                    base_spec = SENSOR_THRESHOLDS.get(col)
+
+                    # If column not in SENSOR_THRESHOLDS, check if any deployment group covers it
+                    if base_spec is None:
+                        has_dep_coverage = any(
+                            col in _get_grp_thresholds(instr_groups.get(d['group'], {}))[0]
+                            for d in current_deps
+                        )
+                        if not has_dep_coverage:
+                            continue  # no threshold info at all — skip
+                        # Deployment group covers it but no global spec: use inf as base
+                        base_r_min, base_r_max = -np.inf, np.inf
+                        base_c_min, base_c_max = None, None
                     else:
-                        # Complex: Time-Varying
-                        limit_min_series = pd.Series(np.nan, index=df.index)
-                        limit_max_series = pd.Series(np.nan, index=df.index)
-                        
-                        # fill Base
-                        limit_min_series[:] = resolve_val(base_min, df)
-                        limit_max_series[:] = resolve_val(base_max, df)
-                        
+                        base_r_min = base_spec.get('r_min')
+                        base_r_max = base_spec.get('r_max')
+                        base_c_min = base_spec.get('c_min')
+                        base_c_max = base_spec.get('c_max')
+
+                    # Ensure flag column exists
+                    flag_col = f"{col}_Flag"
+                    if flag_col not in df.columns:
+                        df[flag_col] = ""
+
+                    vals = pd.to_numeric(df[col], errors='coerce')
+
+                    # --- Build time-varying limit Series for R tier ---
+                    # Default sensor height (overridden per deployment below)
+                    default_sensor_height = 166
+
+                    # Check if any deployment overrides this column
+                    relevant_deps = [
+                        d for d in current_deps
+                        if col in _get_grp_thresholds(instr_groups.get(d['group'], {}))[0]
+                    ]
+
+                    if not relevant_deps:
+                        # No deployment override — use base limits directly (fast path)
+                        r_min_eff = resolve_limit(base_r_min, df, default_sensor_height)
+                        r_max_eff = resolve_limit(base_r_max, df, default_sensor_height)
+                        c_min_eff = resolve_limit(base_c_min, df, default_sensor_height)
+                        c_max_eff = resolve_limit(base_c_max, df, default_sensor_height)
+
+                        # R flag (hard limit)
+                        if r_min_eff is not None or r_max_eff is not None:
+                            mask_r = pd.Series(False, index=df.index)
+                            if r_min_eff is not None:
+                                mask_r = mask_r | (vals < r_min_eff)
+                            if r_max_eff is not None:
+                                mask_r = mask_r | (vals > r_max_eff)
+                            _append_flag(df, flag_col, mask_r, 'R')
+
+                        # C flag (soft limit) — only for rows that did NOT get R
+                        if c_min_eff is not None or c_max_eff is not None:
+                            mask_already_r = df[flag_col].fillna("").str.contains(r'\bR\b', regex=True)
+                            mask_c = pd.Series(False, index=df.index)
+                            if c_min_eff is not None:
+                                mask_c = mask_c | (vals < c_min_eff)
+                            if c_max_eff is not None:
+                                mask_c = mask_c | (vals > c_max_eff)
+                            mask_c = mask_c & ~mask_already_r
+                            _append_flag(df, flag_col, mask_c, 'C')
+
+                    else:
+                        # Time-varying: build per-row limit Series for both R and C
+                        r_min_series = pd.Series(
+                            resolve_limit(base_r_min, df, default_sensor_height)
+                            if not isinstance(base_r_min, str) else np.nan,
+                            index=df.index, dtype=float
+                        )
+                        r_max_series = pd.Series(
+                            resolve_limit(base_r_max, df, default_sensor_height)
+                            if not isinstance(base_r_max, str) else np.nan,
+                            index=df.index, dtype=float
+                        )
+                        # C-limit series — also time-varying from group thresholds
+                        c_min_series = pd.Series(
+                            resolve_limit(base_c_min, df, default_sensor_height)
+                            if base_c_min is not None and not isinstance(base_c_min, str) else np.nan,
+                            index=df.index, dtype=float
+                        )
+                        c_max_series = pd.Series(
+                            resolve_limit(base_c_max, df, default_sensor_height)
+                            if base_c_max is not None and not isinstance(base_c_max, str) else np.nan,
+                            index=df.index, dtype=float
+                        )
+
                         for dep in current_deps:
                             grp_data = instr_groups.get(dep['group'], {})
-                            # Extract thresholds and sensor_height from nested structure
-                            if isinstance(grp_data, dict) and "thresholds" in grp_data:
-                                grp_thresholds = grp_data["thresholds"]
-                                grp_sensor_height = grp_data.get("sensor_height", 166)
-                            else:
-                                # Legacy format
-                                grp_thresholds = grp_data
-                                grp_sensor_height = 166
-                                
-                            if col in grp_thresholds:
-                                try:
-                                    t_s = pd.to_datetime(dep['start'])
-                                    t_e = pd.to_datetime(dep['end']) + timedelta(hours=23, minutes=59)
-                                    
-                                    mask_time = (df['TIMESTAMP'] >= t_s) & (df['TIMESTAMP'] <= t_e)
-                                    if mask_time.any():
-                                        g_min, g_max = grp_thresholds[col]
-                                        
-                                        # Apply sensor height adjustments for DT_Avg and DBTCDT_Avg
-                                        if col == 'DT_Avg':
-                                            g_max = grp_sensor_height + 5
-                                        elif col == 'DBTCDT_Avg':
-                                            g_max = grp_sensor_height + 5
-                                        
-                                        # Resolve values for this slice
-                                        vals_slice = df.loc[mask_time]
-                                        v_min = resolve_val(g_min, vals_slice)
-                                        v_max = resolve_val(g_max, vals_slice)
-                                        
-                                        limit_min_series.loc[mask_time] = v_min
-                                        limit_max_series.loc[mask_time] = v_max
-                                except Exception as e:
-                                    st.warning(f"Config Error ({dep}): {e}")
-                                    
-                        mask_fail = (vals < limit_min_series) | (vals > limit_max_series)
+                            grp_thresholds, grp_sensor_height = _get_grp_thresholds(grp_data)
 
-                    # Check Fail & Existing M
-                    flag_col = f"{col}_Flag"
-                    if flag_col not in df.columns: df[flag_col] = "" 
+                            if col not in grp_thresholds:
+                                continue
+                            try:
+                                t_s = pd.to_datetime(dep['start'])
+                                t_e = pd.to_datetime(dep['end']) + timedelta(hours=23, minutes=59)
+                                mask_time = (df['TIMESTAMP'] >= t_s) & (df['TIMESTAMP'] <= t_e)
+                                if not mask_time.any():
+                                    continue
 
-                    current_flags = df[flag_col].fillna("").astype(str)
-                    mask_has_m = current_flags.str.contains('M')
-                    mask_apply = mask_fail & (~mask_has_m)
+                                col_spec = grp_thresholds[col]
 
-                    if mask_apply.any():
-                        target_indices = current_flags.index[mask_apply]
-                        targets = current_flags.loc[mask_apply]
-                        new_flags = np.where(targets == "", "T", targets + ", T")
-                        df.loc[mask_apply, flag_col] = new_flags
+                                # Handle both dict {r_min, r_max, c_min, c_max} and legacy [min, max]
+                                if isinstance(col_spec, dict):
+                                    # New R/C dict structure
+                                    g_r_min = col_spec.get('r_min')
+                                    g_r_max = col_spec.get('r_max')
+                                    g_c_min = col_spec.get('c_min')
+                                    g_c_max = col_spec.get('c_max')
+                                elif isinstance(col_spec, (list, tuple)) and len(col_spec) == 2:
+                                    # Legacy [min, max] list — treat as R limits only
+                                    g_r_min, g_r_max = col_spec
+                                    g_c_min, g_c_max = None, None
+                                else:
+                                    continue  # unknown format, skip
+
+                                # Resolve R limits for this deployment window
+                                g_r_min_v = resolve_limit(g_r_min, df.loc[mask_time], grp_sensor_height)
+                                g_r_max_v = resolve_limit(g_r_max, df.loc[mask_time], grp_sensor_height)
+                                if g_r_min_v is not None:
+                                    r_min_series.loc[mask_time] = g_r_min_v
+                                if g_r_max_v is not None:
+                                    r_max_series.loc[mask_time] = g_r_max_v
+
+                                # Resolve C limits for this deployment window
+                                g_c_min_v = resolve_limit(g_c_min, df.loc[mask_time], grp_sensor_height)
+                                g_c_max_v = resolve_limit(g_c_max, df.loc[mask_time], grp_sensor_height)
+                                if g_c_min_v is not None:
+                                    c_min_series.loc[mask_time] = g_c_min_v
+                                if g_c_max_v is not None:
+                                    c_max_series.loc[mask_time] = g_c_max_v
+
+                            except Exception as e:
+                                st.warning(f"Config Error ({dep}): {e}")
+
+                        # R flag (hard limit, time-varying)
+                        mask_r = (vals < r_min_series) | (vals > r_max_series)
+                        _append_flag(df, flag_col, mask_r, 'R')
+
+                        # C flag (soft limit, time-varying from group thresholds)
+                        has_c = c_min_series.notna().any() or c_max_series.notna().any()
+                        if has_c:
+                            mask_already_r = df[flag_col].fillna("").str.contains(r'\bR\b', regex=True)
+                            mask_c = pd.Series(False, index=df.index)
+                            if c_min_series.notna().any():
+                                mask_c = mask_c | (vals < c_min_series)
+                            if c_max_series.notna().any():
+                                mask_c = mask_c | (vals > c_max_series)
+                            mask_c = mask_c & ~mask_already_r
+                            _append_flag(df, flag_col, mask_c, 'C')
+
+
 
                 # 2. Dynamic/Logic Flags
                 # Snow Depth Logic - Time-varying sensor height per deployment
@@ -1286,11 +1883,12 @@ def main():
                          except Exception as e:
                              st.warning(f"Config Error in DBTCDT_Avg logic ({dep}): {e}")
                      
-                     # T > H-50
+                     # R > H-50 (hard limit breach — sensor-height-dependent)
                      mask_t = (vals > limit_series)
                      if mask_t.any():
                          curr = df.loc[mask_t, flag_col].fillna("").astype(str)
-                         df.loc[mask_t, flag_col] = np.where(curr == "", "T", curr + ", T")
+                         df.loc[mask_t, flag_col] = np.where(curr == "", "R", curr + ", R")
+
                      
                      # Summer Snow
                      if 'TIMESTAMP' in df.columns:
@@ -1318,21 +1916,11 @@ def main():
                         curr = df.loc[mask_su, fc].fillna("").astype(str)
                         df.loc[mask_su, fc] = np.where(curr == "", "SU", curr + ", SU")
 
-                # Tilt Logic (T/SU) - moved from static
-                for tcol in ['TiltNS_deg_Avg', 'TiltWE_deg_Avg']:
-                    if tcol in df.columns:
-                        vals = pd.to_numeric(df[tcol], errors='coerce')
-                        fc = f"{tcol}_Flag"
-                        # T > 10
-                        mask_t = (vals.abs() > 10)
-                        if mask_t.any():
-                            curr = df.loc[mask_t, fc].fillna("").astype(str)
-                            df.loc[mask_t, fc] = np.where(curr == "", "T", curr + ", T")
-                        # SU > 3
-                        mask_su = (vals.abs() > 3) & (vals.abs() <= 10)
-                        if mask_su.any():
-                            curr = df.loc[mask_su, fc].fillna("").astype(str)
-                            df.loc[mask_su, fc] = np.where(curr == "", "SU", curr + ", SU")
+                # Note: Tilt columns (TiltNS_deg_Avg, TileWE_deg_Avg) are handled entirely by:
+                #   1. The main threshold loop above (applies C for >|3°|, R for >|90°|)
+                #   2. DEPENDENCY_CONFIG (propagates T to SlrFD_W_Avg/Rain_mm_Tot when tilt has C,
+                #      and DC when tilt has R)
+                # No separate tilt block is needed here.
 
                 # 3. Nighttime Flags (Z)
                 if Sun and 'TIMESTAMP' in df.columns:
@@ -1381,20 +1969,66 @@ def main():
                                             curr = df.loc[idx, fc].fillna("").astype(str)
                                             df.loc[idx, fc] = np.where(curr == "", "Z", curr + ", Z")
 
-                # 4. Critical Flags (PTemp)
-                if 'PTemp_C_Avg_Flag' in df.columns:
-                   pf = df['PTemp_C_Avg_Flag'].fillna("").astype(str)
-                   mask_crit = pf.str.contains(r'\bT\b', regex=True)
-                   if mask_crit.any():
-                       st.warning(f"Critical PTemp Failure found in {mask_crit.sum()} records.")
-                       for col in active_thresholds.keys():
-                           if col == 'PTemp_C_Avg' or col not in df.columns: continue
-                           fc = f"{col}_Flag"
-                           curr = df.loc[mask_crit, fc].fillna("").astype(str)
-                           df.loc[mask_crit, fc] = np.where(curr == "", "ERR", curr + ", ERR")
+                # 4. System-level propagation: BV (battery voltage R) and PT (panel temp R)
+                # When BattV_Avg or PTemp_C_Avg is flagged R, all other sensor columns
+                # get BV or PT appended to their flag (per Flags_Depend in RefSensorThresholds).
+                # This is done programmatically because it affects every column.
+                system_propagations = [
+                    ('BattV_Avg', 'BV'),
+                    ('PTemp_C_Avg', 'PT'),
+                    ('Ptmp_C_Avg', 'PT'),
+                ]
+                for src_col, prop_flag in system_propagations:
+                    src_fc = f"{src_col}_Flag"
+                    if src_fc not in df.columns:
+                        continue
+                    # Find rows where the source column has an R flag
+                    mask_src_r = df[src_fc].fillna("").astype(str).str.contains(r'\bR\b', regex=True)
+                    if not mask_src_r.any():
+                        continue
+                    # Propagate to all other sensor columns (skip metadata, TIMESTAMP, RECORD, and the source itself)
+                    skip_cols = {'TIMESTAMP', 'RECORD', src_col, src_fc}
+                    for col in df.columns:
+                        if col.endswith('_Flag') and col not in skip_cols:
+                            curr = df.loc[mask_src_r, col].fillna("").astype(str)
+                            already = curr.str.contains(rf'\b{prop_flag}\b', regex=True)
+                            df.loc[mask_src_r, col] = np.where(
+                                already, curr,
+                                np.where(curr == "", prop_flag, curr + ", " + prop_flag)
+                            )
 
-                # 5. Legacy/Unique Cases
-                # LR (Logger Reset)
+                # 5. Critical Flags (PT — panel temperature flagged R)
+                # If PTemp is flagged R, warn the user (data may be unreliable system-wide)
+                for pt_col in ['PTemp_C_Avg_Flag', 'Ptmp_C_Avg_Flag']:
+                    if pt_col in df.columns:
+                        pf = df[pt_col].fillna("").astype(str)
+                        mask_crit = pf.str.contains(r'\bR\b', regex=True)
+                        if mask_crit.any():
+                            st.warning(f"⚠️ Panel Temperature (PT) flagged R in {mask_crit.sum()} records — system-wide data quality may be affected.")
+
+
+                # 6. E flag — sensor-specific error values (-9999 or -9990)
+                # Per Notes column: E if -9999 (or -9990 for WS_ms_Avg)
+                # These are logger-encoded error codes that indicate sensor failure.
+                ERROR_VALUES = {-9999, -9990, -9998}
+                for col in qc_cols:
+                    if col not in df.columns:
+                        continue
+                    flag_col = f"{col}_Flag"
+                    if flag_col not in df.columns:
+                        df[flag_col] = ""
+                    raw_vals = pd.to_numeric(df[col], errors='coerce')
+                    mask_err_val = raw_vals.isin(ERROR_VALUES)
+                    if mask_err_val.any():
+                        curr = df.loc[mask_err_val, flag_col].fillna("").astype(str)
+                        already = curr.str.contains(r'\bE\b', regex=True)
+                        df.loc[mask_err_val, flag_col] = np.where(
+                            already, curr,
+                            np.where(curr == "", "E", curr + ", E")
+                        )
+
+                # 7. LR (Logger Restart) — RECORD sequence restart
+                # Per FlagLibrary: LR indicates power failure or logger update.
                 if "RECORD" in df.columns:
                      vals = pd.to_numeric(df["RECORD"], errors='coerce')
                      prev = vals.shift(1)
@@ -1406,7 +2040,23 @@ def main():
                          curr = df.loc[mask_restart, fc].fillna("").astype(str)
                          df.loc[mask_restart, fc] = np.where(curr == "", "LR", curr + ", LR")
 
-                # 6. Dependencies
+                # 8. DZ (Divide by Zero) — albedo when SWin < 20 W/m²
+                # Per Notes: "Flag DZ if SWin_Avg < 20" (too dark to compute meaningful albedo)
+                if 'SWalbedo_Avg' in df.columns and 'SWin_Avg' in df.columns:
+                    sw_in = pd.to_numeric(df['SWin_Avg'], errors='coerce')
+                    mask_dz = sw_in < 20
+                    if mask_dz.any():
+                        fc = 'SWalbedo_Avg_Flag'
+                        if fc not in df.columns:
+                            df[fc] = ""
+                        curr = df.loc[mask_dz, fc].fillna("").astype(str)
+                        already = curr.str.contains(r'\bDZ\b', regex=True)
+                        df.loc[mask_dz, fc] = np.where(
+                            already, curr,
+                            np.where(curr == "", "DZ", curr + ", DZ")
+                        )
+
+                # 9. Dependencies — propagate flags from source to target columns
                 for dep in DEPENDENCY_CONFIG:
                    target = dep['target']
                    if target not in df.columns: continue
@@ -1424,7 +2074,27 @@ def main():
                        curr = df.loc[mask_fail, tfc].fillna("").astype(str)
                        df.loc[mask_fail, tfc] = np.where(curr == "", dep['set_flag'], curr + ", " + dep['set_flag'])
 
-                # 7. Pass Flags (P)
+                # 10. SF (Snow Free period) — Sep 1 through Jun 30
+                # Per FlagLibrary: SF = snow-free period. Months 9–12 and 1–6.
+                # Any positive snow depth reading in this period is suspicious.
+                if 'DBTCDT_Avg' in df.columns and 'TIMESTAMP' in df.columns:
+                    months = df['TIMESTAMP'].dt.month
+                    # Snow-free months: September (9) through June (6)
+                    snow_free_months = [9, 10, 11, 12, 1, 2, 3, 4, 5, 6]
+                    vals_sd = pd.to_numeric(df['DBTCDT_Avg'], errors='coerce')
+                    mask_sf = months.isin(snow_free_months) & (vals_sd > 0)
+                    if mask_sf.any():
+                        fc = 'DBTCDT_Avg_Flag'
+                        if fc not in df.columns:
+                            df[fc] = ""
+                        curr = df.loc[mask_sf, fc].fillna("").astype(str)
+                        already = curr.str.contains(r'\bSF\b', regex=True)
+                        df.loc[mask_sf, fc] = np.where(
+                            already, curr,
+                            np.where(curr == "", "SF", curr + ", SF")
+                        )
+
+                # 11. Pass Flags (P) — clean data with no flags
                 for col in df.columns:
                     if col.endswith("_Flag"):
                         dcol = col[:-5]
