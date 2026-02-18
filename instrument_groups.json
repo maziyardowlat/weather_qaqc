@@ -1,6 +1,6 @@
 {
     "ClimaVue50": {
-        "sensor_height": 166,
+        "sensor_height": 180,
         "thresholds": {
             "Rain_mm_Tot": [
                 10,
@@ -35,7 +35,7 @@
                 1050.0
             ],
             "RH": [
-                0,
+                30,
                 100.0
             ],
             "SlrFD_W_Avg": [

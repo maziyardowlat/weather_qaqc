@@ -10,9 +10,24 @@
         "deployments": [
             {
                 "start": "2023-07-04",
-                "end": "2023-12-08",
+                "end": "2024-05-16",
                 "group": "SR50"
             }
         ]
+    },
+    "02MF002": {
+        "latitude": 51.12,
+        "longitude": -122.0,
+        "deployments": []
+    },
+    "02MFW002": {
+        "latitude": 53.7217,
+        "longitude": -125.6417,
+        "deployments": []
+    },
+    "02FW005": {
+        "latitude": 53.7217,
+        "longitude": -125.6417,
+        "deployments": []
     }
 }
