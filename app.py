@@ -485,7 +485,7 @@ def parse_metadata_log(xlsx_file, raw_filename=None, df_timestamps=None):
     Returns:
         dict with keys 'visit_windows', 'data_id', 'script_id'
     """
-    result = {'visit_windows': [], 'data_id': None, 'script_id': None}
+    result = {'visit_windows': [], 'data_id': None, 'script_id': None, 'field_time': None}
 
     # Guard: openpyxl must be available
     if openpyxl is None:
@@ -572,22 +572,86 @@ def parse_metadata_log(xlsx_file, raw_filename=None, df_timestamps=None):
 
             result['visit_windows'].append((dt_in, dt_out))
 
-        # --- 2. Find Data_ID matching the raw filename ---
-        # Strip path and extension for a loose match
+        # --- 1b. Extract the date embedded in the raw filename (e.g. "20231102" → 2023-11-02) ---
+        # This is the most reliable anchor for matching Site Visit rows and pre-filling
+        # Field In/Out, because the visit always happens on the same day as the download.
+        # We look for an 8-digit YYYYMMDD pattern anywhere in the filename stem.
+        import re as _re
+        filename_date = None  # datetime.date or None
+        raw_stem_for_date = os.path.splitext(os.path.basename(raw_filename or ''))[0]
+        _date_match = _re.search(r'(\d{8})', raw_stem_for_date)
+        if _date_match:
+            try:
+                filename_date = datetime.strptime(_date_match.group(1), '%Y%m%d').date()
+            except ValueError:
+                filename_date = None
+
+        # --- 1c. Find Field In/Out from the Site Visit on the filename date (±2 days) ---
+        # We search ALL Site Visit rows directly — NOT filtered through visit_windows —
+        # because the overlap filter can exclude visits that start just after ts_max
+        # (e.g. visit at 14:33 when the last data point is 14:30).
+        for row in rows:
+            if str(row.get('Event_type', '')).strip() != 'Site Visit':
+                continue
+            date_val  = row.get('Date')
+            time_in   = _to_time(row.get('Time-in'))
+            time_out  = _to_time(row.get('Time-out'))
+            if date_val is None or time_in is None or time_out is None:
+                continue
+            row_date = date_val.date() if hasattr(date_val, 'date') else date_val
+
+            # Match by filename date (exact or within 2 days), or fall back to ts_max proximity
+            matched = False
+            if filename_date is not None:
+                matched = abs((row_date - filename_date).days) <= 2
+            elif ts_max is not None:
+                matched = abs((row_date - ts_max.date()).days) <= 2
+
+            if matched:
+                dt_in  = _combine(date_val, time_in)
+                dt_out = _combine(date_val, time_out, reference_time=time_in)
+                result['field_time'] = {'in': dt_in, 'out': dt_out}
+                break  # first match wins; user can edit if wrong
+
+        # --- 2. Find Data_ID: prefer Site Visit row on filename date, fall back to Data Download ---
+        # Strategy:
+        #   a) If we have a filename date, find the 'Site Visit' row on that date and use
+        #      its Data/Visit/Script_ID as the Data ID. This is the visit ID (e.g. 02FW005-2023-002)
+        #      which is what the user wants in the Data ID column.
+        #   b) If no Site Visit match, fall back to the 'Data Download' row whose File_name
+        #      matches the raw filename (original behaviour).
         raw_stem = os.path.splitext(os.path.basename(raw_filename or ''))[0].lower()
         matched_download_date = None
 
-        for row in rows:
-            if str(row.get('Event_type', '')).strip() != 'Data Download':
-                continue
-            file_name_cell = str(row.get('File_name', '') or '').strip()
-            cell_stem = os.path.splitext(file_name_cell)[0].lower()
-            if raw_stem and (raw_stem == cell_stem or raw_stem in cell_stem or cell_stem in raw_stem):
-                result['data_id'] = str(row.get('Data/Visit/Script_ID', '') or '').strip() or None
-                matched_download_date = row.get('Date')
-                break  # use first match
+        # (a) Site Visit match by filename date
+        if filename_date is not None:
+            for row in rows:
+                if str(row.get('Event_type', '')).strip() != 'Site Visit':
+                    continue
+                date_val = row.get('Date')
+                if date_val is None:
+                    continue
+                row_date = date_val.date() if hasattr(date_val, 'date') else date_val
+                if abs((row_date - filename_date).days) <= 2:
+                    visit_id = str(row.get('Data/Visit/Script_ID', '') or '').strip()
+                    if visit_id and visit_id.upper() != 'NULL':
+                        result['data_id'] = visit_id
+                        matched_download_date = date_val  # use visit date for script lookup
+                        break
 
-        # --- 3. Find Script_ID from most recent 'Script Change' on or before download date ---
+        # (b) Fallback: Data Download row whose File_name matches the raw filename
+        if result['data_id'] is None:
+            for row in rows:
+                if str(row.get('Event_type', '')).strip() != 'Data Download':
+                    continue
+                file_name_cell = str(row.get('File_name', '') or '').strip()
+                cell_stem = os.path.splitext(file_name_cell)[0].lower()
+                if raw_stem and (raw_stem == cell_stem or raw_stem in cell_stem or cell_stem in raw_stem):
+                    result['data_id'] = str(row.get('Data/Visit/Script_ID', '') or '').strip() or None
+                    matched_download_date = row.get('Date')
+                    break  # use first match
+
+        # --- 3. Find Script_ID from most recent 'Script Change' on or before the matched date ---
         script_rows = [
             r for r in rows
             if str(r.get('Event_type', '')).strip() == 'Script Change'
@@ -600,7 +664,7 @@ def parse_metadata_log(xlsx_file, raw_filename=None, df_timestamps=None):
                 return v.date() if hasattr(v, 'date') else v
 
             download_date = _to_date(matched_download_date)
-            # Keep only script changes on or before the download date
+            # Keep only script changes on or before the matched date
             eligible = [r for r in script_rows if _to_date(r['Date']) <= download_date]
             if eligible:
                 # Most recent = largest date
@@ -884,6 +948,38 @@ def main():
             station_configs[station_name]["longitude"] = longitude
             save_station_configs(station_configs)
     
+    # ------------------------------------------------------------------
+    # MetadataLog — station-level upload (shared across all uploaded files)
+    # Upload once per station; the app parses it and auto-fills Data ID,
+    # Logger Script, and Field Visit windows for every file in the session.
+    # ------------------------------------------------------------------
+    st.sidebar.divider()
+    st.sidebar.caption("📋 MetadataLog (Optional)")
+    sidebar_metalog = st.sidebar.file_uploader(
+        "Upload MetadataLog.xlsx",
+        type=["xlsx"],
+        key="sidebar_metalog",
+        help="Upload once per station. Auto-fills Data ID, Logger Script, and Field Visit windows for all uploaded files."
+    )
+
+    if sidebar_metalog:
+        # Cache the raw bytes so re-runs don't require re-uploading.
+        # If the user swaps to a different file, the name changes and we re-cache.
+        if (
+            "metalog_raw" not in st.session_state
+            or st.session_state.get("metalog_name") != sidebar_metalog.name
+        ):
+            st.session_state["metalog_raw"]  = sidebar_metalog.read()
+            st.session_state["metalog_name"] = sidebar_metalog.name
+            sidebar_metalog.seek(0)
+        st.sidebar.success(f"✅ Loaded: **{sidebar_metalog.name}**")
+    else:
+        # User removed the file — clear the cache
+        st.session_state.pop("metalog_raw",  None)
+        st.session_state.pop("metalog_name", None)
+
+    st.sidebar.divider()
+
     output_dir = st.sidebar.text_input("Output Directory", value="data")
 
     # Sensor height is now configured per instrument group
@@ -913,35 +1009,30 @@ def main():
                 with st.expander(f"File {i+1}: {file.name}", expanded=True):
                     col1, col2 = st.columns(2)
                     
-                    # Metadata Auto-Parse
-                    # Note: Need unique keys for widgets
                     # Parse TOA5 header for logger metadata (model, serial, OS, script)
                     meta = parse_toa5_header(file)
 
                     # ------------------------------------------------------------------
                     # MetadataLog Auto-fill
-                    # Upload the station's MetadataLog.xlsx to automatically populate:
-                    #   - Data ID   (from 'Data Download' rows matching this file)
-                    #   - Logger Script (from the most recent 'Script Change' row)
-                    #   - Field Visit windows (from all 'Site Visit' rows in range)
-                    # All values remain editable below.
+                    # The MetadataLog is uploaded once in the sidebar (station-level).
+                    # Here we parse it per-file using that file's timestamp range to:
+                    #   - Match the Data ID from the 'Data Download' row for this file
+                    #   - Find the most recent 'Script Change' row
+                    #   - Find the first 'Site Visit' within 2 days of this file's range
+                    #     and pre-fill Field In / Field Out (both remain editable)
                     # ------------------------------------------------------------------
-                    st.caption("📋 MetadataLog Auto-fill (Optional)")
-                    meta_log_file = st.file_uploader(
-                        "Upload MetadataLog.xlsx for this station",
-                        type=["xlsx"],
-                        key=f"metalog_{i}",
-                        help="Uploads the station MetadataLog.xlsx to auto-fill Data ID, Logger Script, and Field Visit windows."
-                    )
 
                     # Defaults before any auto-fill
-                    auto_data_id     = ""
-                    auto_script_id   = meta['logger_script']  # fall back to TOA5 header
+                    auto_data_id       = ""
+                    auto_script_id     = meta['logger_script']  # fall back to TOA5 header
                     auto_visit_windows = []  # list of (datetime_in, datetime_out)
+                    auto_field_in      = ""  # pre-fill for Field In text input
+                    auto_field_out     = ""  # pre-fill for Field Out text input
 
-                    if meta_log_file:
-                        # We need the file's timestamps to validate visit windows.
-                        # Do a quick read of just the TIMESTAMP column for range checking.
+                    if "metalog_raw" in st.session_state:
+                        import io
+                        # Quick read of just the TIMESTAMP column to validate visit windows
+                        # against this specific file's date range.
                         try:
                             file.seek(0)
                             _ts_df = pd.read_csv(
@@ -953,14 +1044,14 @@ def main():
                                 low_memory=False
                             )
                             _ts_series = pd.to_datetime(_ts_df['TIMESTAMP'], errors='coerce').dropna()
-                            file.seek(0)  # reset for later full read
+                            file.seek(0)  # reset for the full read later
                         except Exception:
                             _ts_series = pd.Series([], dtype='datetime64[ns]')
                             file.seek(0)
 
-                        # Parse the MetadataLog
+                        # Parse the shared MetadataLog bytes for this file's context
                         parsed_meta = parse_metadata_log(
-                            meta_log_file,
+                            io.BytesIO(st.session_state["metalog_raw"]),
                             raw_filename=file.name,
                             df_timestamps=_ts_series
                         )
@@ -972,14 +1063,23 @@ def main():
                         if parsed_meta['script_id']:
                             auto_script_id = parsed_meta['script_id']
                             st.success(f"✅ Logger Script auto-filled: **{auto_script_id}**")
-                        if parsed_meta['visit_windows']:
-                            auto_visit_windows = parsed_meta['visit_windows']
+
+                        auto_visit_windows = parsed_meta['visit_windows']
+                        if auto_visit_windows:
                             st.success(
-                                f"✅ {len(auto_visit_windows)} field visit window(s) found in MetadataLog "
-                                f"that overlap this file's date range."
+                                f"✅ {len(auto_visit_windows)} field visit window(s) found "
+                                f"overlapping this file's date range."
                             )
-                        else:
-                            st.info("ℹ️ No field visit windows found in MetadataLog that overlap this file's date range.")
+
+                        # Pre-fill Field In/Out from the first Site Visit within 2 days
+                        if parsed_meta.get('field_time'):
+                            ft = parsed_meta['field_time']
+                            auto_field_in  = ft['in'].strftime('%Y-%m-%d %H:%M')
+                            auto_field_out = ft['out'].strftime('%Y-%m-%d %H:%M')
+                            st.info(
+                                f"ℹ️ Field times pre-filled from MetadataLog visit on "
+                                f"{ft['in'].strftime('%Y-%m-%d')}. Edit below if needed."
+                            )
 
                     # ------------------------------------------------------------------
                     # Editable metadata fields (auto-filled above, but user can override)
@@ -1010,27 +1110,35 @@ def main():
                     add_caution = st.checkbox(f"Add Caution Flag (C) to all data columns", key=f"caution_{i}")
 
                     # ------------------------------------------------------------------
-                    # Field Visit Windows
-                    # Auto-populated from MetadataLog. User can also add manual windows.
+                    # Field Visit Windows (V flag)
+                    # Auto-detected windows from MetadataLog are shown as read-only.
+                    # Field In / Field Out are pre-filled from the closest matching visit
+                    # (within 2 days of this file's date range) and are always editable.
                     # ------------------------------------------------------------------
                     st.caption("🏕️ Field Visit Windows (V flag)")
 
-                    # Show auto-detected windows as read-only info
+                    # Show all auto-detected windows as read-only reference
                     if auto_visit_windows:
-                        st.write("**Auto-detected from MetadataLog:**")
+                        st.write("**All visits overlapping this file's date range:**")
                         for vw_in, vw_out in auto_visit_windows:
                             st.write(f"  • {vw_in.strftime('%Y-%m-%d %H:%M')} → {vw_out.strftime('%Y-%m-%d %H:%M')}")
 
-                    # Manual override / additional window (use checkbox, not expander — can't nest expanders)
-                    show_manual_fv = st.checkbox("➕ Add a manual field visit window", key=f"show_fv_{i}")
-                    if show_manual_fv:
-                        fv_col1, fv_col2 = st.columns(2)
-                        with fv_col1:
-                            fv_in = st.text_input("Field In (YYYY-MM-DD HH:MM)", value="", key=f"fi_{i}")
-                        with fv_col2:
-                            fv_out = st.text_input("Field Out (YYYY-MM-DD HH:MM)", value="", key=f"fo_{i}")
-                    else:
-                        fv_in, fv_out = "", ""
+                    # Field In / Field Out — always shown, pre-filled if a match was found
+                    fv_col1, fv_col2 = st.columns(2)
+                    with fv_col1:
+                        fv_in = st.text_input(
+                            "Field In (YYYY-MM-DD HH:MM)",
+                            value=auto_field_in,
+                            key=f"fi_{i}",
+                            help="Pre-filled from MetadataLog Site Visit within 2 days of this file. Edit if needed."
+                        )
+                    with fv_col2:
+                        fv_out = st.text_input(
+                            "Field Out (YYYY-MM-DD HH:MM)",
+                            value=auto_field_out,
+                            key=f"fo_{i}",
+                            help="Pre-filled from MetadataLog Site Visit within 2 days of this file. Edit if needed."
+                        )
 
 
                     

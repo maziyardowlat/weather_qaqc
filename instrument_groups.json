@@ -1,57 +1,232 @@
 {
     "ClimaVue50": {
-        "sensor_height": 180,
+        "sensor_height": 251,
         "thresholds": {
-            "AirT_C_Avg":      {"r_min": -50,   "r_max": 60,    "c_min": null,  "c_max": null},
-            "RHT_Avg":         {"r_min": -40,   "r_max": 60,    "c_min": null,  "c_max": null},
-            "RHT_C_Avg":       {"r_min": -40,   "r_max": 60,    "c_min": null,  "c_max": null},
-            "SlrFD_W_Avg":     {"r_min": 0,     "r_max": 1750,  "c_min": 0,     "c_max": 1360},
-            "Rain_mm_Tot":     {"r_min": 0,     "r_max": 100,   "c_min": 0,     "c_max": 12.5},
-            "Strikes_Tot":     {"r_min": 0,     "r_max": 65535, "c_min": null,  "c_max": null},
-            "Dist_km_Avg":     {"r_min": 0,     "r_max": 40,    "c_min": null,  "c_max": null},
-            "WS_ms_Avg":       {"r_min": 0,     "r_max": 30,    "c_min": null,  "c_max": null},
-            "WindDir":         {"r_min": 0,     "r_max": 359,   "c_min": null,  "c_max": null},
-            "MaxWS_ms":        {"r_min": 0,     "r_max": 30,    "c_min": null,  "c_max": null},
-            "VP_hPa_Avg":      {"r_min": 0,     "r_max": 47,    "c_min": null,  "c_max": null},
-            "RH":              {"r_min": 0,     "r_max": 100,   "c_min": null,  "c_max": null},
-            "BP_hPa_Avg":      {"r_min": 500,   "r_max": 1100,  "c_min": null,  "c_max": null},
-            "TiltNS_deg_Avg":  {"r_min": -90,   "r_max": 90,    "c_min": -3,    "c_max": 3},
-            "TileWE_deg_Avg":  {"r_min": -90,   "r_max": 90,    "c_min": -3,    "c_max": 3},
-            "TiltWE_deg_Avg":  {"r_min": -90,   "r_max": 90,    "c_min": -3,    "c_max": 3},
-            "SlrTF_MJ_Tot":    {"r_min": 0,     "r_max": 1.575, "c_min": 0,     "c_max": 1.215}
+            "AirT_C_Avg": {
+                "r_min": -50.0,
+                "r_max": 60.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "RHT_Avg": {
+                "r_min": -40.0,
+                "r_max": 60.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "RHT_C_Avg": {
+                "r_min": -40.0,
+                "r_max": 60.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "SlrFD_W_Avg": {
+                "r_min": 0.0,
+                "r_max": 1750.0,
+                "c_min": 0.0,
+                "c_max": 1360.0
+            },
+            "Rain_mm_Tot": {
+                "r_min": 0.0,
+                "r_max": 100.0,
+                "c_min": 0.0,
+                "c_max": 12.5
+            },
+            "Strikes_Tot": {
+                "r_min": 0.0,
+                "r_max": 65535.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "Dist_km_Avg": {
+                "r_min": 0.0,
+                "r_max": 40.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "WS_ms_Avg": {
+                "r_min": 0.0,
+                "r_max": 30.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "WindDir": {
+                "r_min": 0.0,
+                "r_max": 359.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "MaxWS_ms": {
+                "r_min": 0.0,
+                "r_max": 30.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "VP_hPa_Avg": {
+                "r_min": 0.0,
+                "r_max": 47.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "RH": {
+                "r_min": 0.0,
+                "r_max": 100.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "BP_hPa_Avg": {
+                "r_min": 500.0,
+                "r_max": 1100.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "TiltNS_deg_Avg": {
+                "r_min": -90.0,
+                "r_max": 90.0,
+                "c_min": -3.0,
+                "c_max": 3.0
+            },
+            "TileWE_deg_Avg": {
+                "r_min": -90.0,
+                "r_max": 90.0,
+                "c_min": -3.0,
+                "c_max": 3.0
+            },
+            "TiltWE_deg_Avg": {
+                "r_min": -90.0,
+                "r_max": 90.0,
+                "c_min": -3.0,
+                "c_max": 3.0
+            },
+            "SlrTF_MJ_Tot": {
+                "r_min": 0.0,
+                "r_max": 1.575,
+                "c_min": 0.0,
+                "c_max": 1.215
+            }
         }
     },
     "SR50": {
-        "sensor_height": 160,
+        "sensor_height": 200,
         "thresholds": {
-            "DT_Avg":      {"r_min": 50,  "r_max": 1000, "c_min": null, "c_max": null},
-            "Q_Avg":       {"r_min": 162, "r_max": 600,  "c_min": null, "c_max": 210},
-            "TCDT_Avg":    {"r_min": 50,  "r_max": 1000, "c_min": null, "c_max": null},
-            "DBTCDT_Avg":  {"r_min": 0,   "r_max": 110,  "c_min": null, "c_max": null}
+            "DT_Avg": {
+                "r_min": 50.0,
+                "r_max": 1000.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "Q_Avg": {
+                "r_min": 162.0,
+                "r_max": 600.0,
+                "c_min": null,
+                "c_max": 210.0
+            },
+            "TCDT_Avg": {
+                "r_min": 50.0,
+                "r_max": 1000.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "DBTCDT_Avg": {
+                "r_min": 0.0,
+                "r_max": 110.0,
+                "c_min": null,
+                "c_max": null
+            }
         }
     },
     "NetRadiometer": {
-        "sensor_height": 180,
+        "sensor_height": 196,
         "thresholds": {
-            "SWin_Avg":      {"r_min": -10,   "r_max": 2000, "c_min": 0,     "c_max": 1360},
-            "SWout_Avg":     {"r_min": -10,   "r_max": 2000, "c_min": 0,     "c_max": 1360},
-            "LWin_Avg":      {"r_min": null,  "r_max": null, "c_min": 0,     "c_max": 600},
-            "LWout_Avg":     {"r_min": null,  "r_max": null, "c_min": 0,     "c_max": 700},
-            "SWnet_Avg":     {"r_min": -2000, "r_max": 2000, "c_min": 0,     "c_max": 1360},
-            "LWnet_Avg":     {"r_min": -200,  "r_max": 200,  "c_min": -150,  "c_max": 100},
-            "SWalbedo_Avg":  {"r_min": 0,     "r_max": 1,    "c_min": 0.05,  "c_max": 0.95},
-            "NR_Avg":        {"r_min": -2200, "r_max": 2200, "c_min": -200,  "c_max": 1000},
-            "stmp_Avg":      {"r_min": -40,   "r_max": 70,   "c_min": null,  "c_max": null},
-            "Stmp_Avg":      {"r_min": -40,   "r_max": 70,   "c_min": null,  "c_max": null},
-            "gtmp_Avg":      {"r_min": -50,   "r_max": 70,   "c_min": null,  "c_max": null},
-            "Gtmp_Avg":      {"r_min": -50,   "r_max": 70,   "c_min": null,  "c_max": null}
+            "SWin_Avg": {
+                "r_min": -10.0,
+                "r_max": 2000.0,
+                "c_min": 0.0,
+                "c_max": 1360.0
+            },
+            "SWout_Avg": {
+                "r_min": -10.0,
+                "r_max": 2000.0,
+                "c_min": 0.0,
+                "c_max": 1360.0
+            },
+            "LWin_Avg": {
+                "r_min": null,
+                "r_max": null,
+                "c_min": 0.0,
+                "c_max": 600.0
+            },
+            "LWout_Avg": {
+                "r_min": null,
+                "r_max": null,
+                "c_min": 0.0,
+                "c_max": 700.0
+            },
+            "SWnet_Avg": {
+                "r_min": -2000.0,
+                "r_max": 2000.0,
+                "c_min": 0.0,
+                "c_max": 1360.0
+            },
+            "LWnet_Avg": {
+                "r_min": -200.0,
+                "r_max": 200.0,
+                "c_min": -150.0,
+                "c_max": 100.0
+            },
+            "SWalbedo_Avg": {
+                "r_min": 0.0,
+                "r_max": 1.0,
+                "c_min": 0.05,
+                "c_max": 0.95
+            },
+            "NR_Avg": {
+                "r_min": -2200.0,
+                "r_max": 2200.0,
+                "c_min": -200.0,
+                "c_max": 1000.0
+            },
+            "stmp_Avg": {
+                "r_min": -40.0,
+                "r_max": 70.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "Stmp_Avg": {
+                "r_min": -40.0,
+                "r_max": 70.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "gtmp_Avg": {
+                "r_min": -50.0,
+                "r_max": 70.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "Gtmp_Avg": {
+                "r_min": -50.0,
+                "r_max": 70.0,
+                "c_min": null,
+                "c_max": null
+            }
         }
     },
     "System": {
+        "sensor_height": 150,
         "thresholds": {
-            "BattV_Avg":   {"r_min": -9.6, "r_max": 19, "c_min": 10,   "c_max": 16},
-            "PTemp_C_Avg": {"r_min": -40,  "r_max": 70, "c_min": null, "c_max": null},
-            "Ptmp_C_Avg":  {"r_min": -40,  "r_max": 70, "c_min": null, "c_max": null}
+            "BattV_Avg": {
+                "r_min": -9.6,
+                "r_max": 19.0,
+                "c_min": 10.0,
+                "c_max": 16.0
+            },
+            "PTemp_C_Avg": {
+                "r_min": -40.0,
+                "r_max": 70.0,
+                "c_min": null,
+                "c_max": null
+            }
         }
     }
 }
