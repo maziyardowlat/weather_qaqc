@@ -391,13 +391,17 @@ def parse_toa5_header(file):
         
     return meta
 
-def load_csv_preview(file):
-    """Loads header and first few rows for preview"""
+def load_csv_preview(file, skip_rows=None):
+    """Loads header and first few rows for preview.
+    
+    Args:
+        file: Uploaded file object.
+        skip_rows: List of 0-indexed row numbers to skip (default: [0, 2, 3] for TOA5).
+    """
+    if skip_rows is None:
+        skip_rows = [0, 2, 3]  # TOA5 standard: env header, units, processing type
     try:
-        # Skip TOA5 header (0), Units (2), Type (3) usually.
-        # But for preview we just want to see columns.
-        # Let's try to detect header row. Usually row 1 (0-indexed).
-        df = pd.read_csv(file, skiprows=[0, 2, 3], nrows=5, keep_default_na=False)
+        df = pd.read_csv(file, skiprows=skip_rows, nrows=5, keep_default_na=False)
         file.seek(0)
         return df
     except Exception as e:
@@ -677,11 +681,17 @@ def parse_metadata_log(xlsx_file, raw_filename=None, df_timestamps=None):
     return result
 
 
-def process_file_data(uploaded_file, mapping, metadata, data_id, station_id):
+def process_file_data(uploaded_file, mapping, metadata, data_id, station_id, skip_rows=None):
     """
     Reads the full CSV or Excel file, applies mapping, adds metadata columns.
     Returns processed DataFrame.
+
+    Args:
+        skip_rows: List of 0-indexed row numbers to skip for CSV files.
+                   Defaults to [0, 2, 3] (standard TOA5 layout).
     """
+    if skip_rows is None:
+        skip_rows = [0, 2, 3]  # TOA5: environment row, units row, processing-type row
     try:
         # Check file type
         is_excel = uploaded_file.name.endswith(('.xlsx', '.xls'))
@@ -692,10 +702,10 @@ def process_file_data(uploaded_file, mapping, metadata, data_id, station_id):
             df = pd.read_excel(uploaded_file, skiprows=[1],  # Skip units row
                              na_values=['NAN', '"NAN"', '', '-7999', '7999'])
         else:
-            # Read CSV/TOA5 file
-            # Skip TOA5 header (0), Units (2), Type (3). Header is row 1.
-            df = pd.read_csv(uploaded_file, skiprows=[0, 2, 3], 
-                             na_values=['NAN', '"NAN"', '', '-7999', '7999'], 
+            # Read CSV/TOA5 file.
+            # skip_rows is passed in from the UI; defaults to [0, 2, 3] (TOA5 standard).
+            df = pd.read_csv(uploaded_file, skiprows=skip_rows,
+                             na_values=['NAN', '"NAN"', '', '-7999', '7999'],
                              keep_default_na=True, skipinitialspace=True, low_memory=False)
         
         # Reset file pointer for next read if needed (though Streamlit handles this usually)
@@ -1012,6 +1022,36 @@ def main():
                     # Parse TOA5 header for logger metadata (model, serial, OS, script)
                     meta = parse_toa5_header(file)
 
+                    # --- Advanced: Row Skip Settings ---
+                    # TOA5 files have 4 rows before data:
+                    #   Row 0: environment/file-info header
+                    #   Row 1: column names (pandas header — NOT skipped)
+                    #   Row 2: units
+                    #   Row 3: processing type (Smp, Avg, …)
+                    # Use the toggle below to override if your file has extra preamble rows.
+                    # Note: st.expander cannot be nested inside another expander in Streamlit,
+                    # so we use a toggle to show/hide this setting instead.
+                    show_skip_settings = st.toggle(
+                        "⚙️ Advanced: Row Skip Settings",
+                        value=False,
+                        key=f"show_skip_{i}"
+                    )
+                    if show_skip_settings:
+                        st.caption(
+                            "Rows to skip before the column-name row. "
+                            "Standard TOA5 files need rows 0, 2 and 3 skipped. "
+                            "Add extra row numbers if your file has additional headers."
+                        )
+                        skip_rows = st.multiselect(
+                            "Skip rows (0-indexed)",
+                            options=list(range(10)),
+                            default=[0, 2, 3],
+                            key=f"skip_rows_{i}",
+                            help="Row 0 = first line of the file. Standard TOA5 = [0, 2, 3]."
+                        )
+                    else:
+                        skip_rows = [0, 2, 3]  # standard TOA5 default
+
                     # ------------------------------------------------------------------
                     # MetadataLog Auto-fill
                     # The MetadataLog is uploaded once in the sidebar (station-level).
@@ -1037,7 +1077,7 @@ def main():
                             file.seek(0)
                             _ts_df = pd.read_csv(
                                 file,
-                                skiprows=[0, 2, 3],
+                                skiprows=skip_rows,   # honour the user's row-skip selection
                                 usecols=['TIMESTAMP'],
                                 na_values=['NAN', '"NAN"', ''],
                                 keep_default_na=True,
@@ -1063,6 +1103,31 @@ def main():
                         if parsed_meta['script_id']:
                             auto_script_id = parsed_meta['script_id']
                             st.success(f"✅ Logger Script auto-filled: **{auto_script_id}**")
+
+                        # Also harvest ALL Script Change IDs from the MetadataLog so the
+                        # dropdown shows the full history, not just the best-match entry.
+                        # This ensures scripts whose change date predates the file are still
+                        # available in the dropdown.
+                        try:
+                            import io as _io
+                            import openpyxl as _opx
+                            _wbl = _opx.load_workbook(
+                                _io.BytesIO(st.session_state["metalog_raw"]), data_only=True
+                            )
+                            if 'EventLog' in _wbl.sheetnames:
+                                _ws = _wbl['EventLog']
+                                _hdrs = [c.value for c in _ws[1]]
+                                for _row in _ws.iter_rows(min_row=2, values_only=True):
+                                    _rd = dict(zip(_hdrs, _row))
+                                    if str(_rd.get('Event_type', '')).strip() == 'Script Change':
+                                        _sid = str(_rd.get('Data/Visit/Script_ID', '') or '').strip()
+                                        if _sid and _sid.upper() not in ('NULL', '999', ''):
+                                            # Store in session state so it persists across files
+                                            st.session_state.setdefault(
+                                                "known_logger_scripts", set()
+                                            ).add(_sid)
+                        except Exception:
+                            pass  # silently skip if MetadataLog can't be re-read here
 
                         auto_visit_windows = parsed_meta['visit_windows']
                         if auto_visit_windows:
@@ -1097,13 +1162,48 @@ def main():
                         logger_id = st.text_input(f"Logger ID", value=meta['logger_id'], key=f"lid_{i}")
 
                     with col2:
-                        # Logger Script: auto-filled from MetadataLog 'Script Change' row
-                        logger_script = st.text_input(
-                            f"Logger Script",
-                            value=auto_script_id,
-                            key=f"lsc_{i}",
-                            help="Auto-filled from MetadataLog 'Script Change' row. Edit if needed."
+                        # Logger Script: dropdown with all known scripts seen so far,
+                        # plus a "Custom…" option that reveals a free-text field.
+                        # The list is seeded from: TOA5-parsed value + MetadataLog auto-fill.
+                        # We store known scripts in session state so they accumulate across files.
+                        if "known_logger_scripts" not in st.session_state:
+                            st.session_state["known_logger_scripts"] = set()
+
+                        # Add both the TOA5-derived and MetadataLog-derived IDs to the pool
+                        for _s in [meta['logger_script'], auto_script_id]:
+                            if _s and _s != '999':
+                                st.session_state["known_logger_scripts"].add(_s)
+
+                        _CUSTOM_LABEL = "✏️ Custom (type below)…"
+                        _script_dropdown_options = (
+                            sorted(st.session_state["known_logger_scripts"]) + [_CUSTOM_LABEL]
                         )
+
+                        # Pre-select the auto-filled value if it's in the list
+                        _default_idx = (
+                            _script_dropdown_options.index(auto_script_id)
+                            if auto_script_id in _script_dropdown_options
+                            else 0
+                        )
+
+                        _selected_script = st.selectbox(
+                            "Logger Script",
+                            options=_script_dropdown_options,
+                            index=_default_idx,
+                            key=f"lsc_sel_{i}",
+                            help="Auto-filled from MetadataLog or TOA5 header. Choose from the list or select 'Custom' to type a value."
+                        )
+
+                        if _selected_script == _CUSTOM_LABEL:
+                            # Reveal a free-text field when 'Custom' is chosen
+                            logger_script = st.text_input(
+                                "Custom Logger Script ID",
+                                value=auto_script_id,
+                                key=f"lsc_custom_{i}",
+                                help="Type any script identifier you need."
+                            )
+                        else:
+                            logger_script = _selected_script
                         logger_soft = st.text_input(f"Logger Software", value=meta['logger_software'], key=f"lsw_{i}")
 
                     # Caution Flag Option
@@ -1143,7 +1243,8 @@ def main():
 
                     
                     # Preview & Mapping
-                    df_preview = load_csv_preview(file)
+                    # Use the user-selected skip_rows so the preview matches the actual read
+                    df_preview = load_csv_preview(file, skip_rows=skip_rows)
                     
                     final_mapping = {}
                     
@@ -1225,7 +1326,8 @@ def main():
                         },
                         "visit_windows": combined_visit_windows,  # list of (in, out) tuples
                         "mapping": final_mapping,
-                        "add_caution": add_caution
+                        "add_caution": add_caution,
+                        "skip_rows": skip_rows,  # user-configured row skip list
                     })
 
 
@@ -1236,11 +1338,12 @@ def main():
                     
                     for cfg in processed_file_configs:
                         df = process_file_data(
-                            cfg['file'], 
-                            cfg['mapping'], 
-                            cfg['meta'], 
-                            cfg['data_id'], 
-                            station_name
+                            cfg['file'],
+                            cfg['mapping'],
+                            cfg['meta'],
+                            cfg['data_id'],
+                            station_name,
+                            skip_rows=cfg.get('skip_rows', [0, 2, 3])  # use per-file skip_rows
                         )
                         
                         if not df.empty:
