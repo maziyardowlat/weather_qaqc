@@ -1621,29 +1621,53 @@ def main():
 
                 st.divider()
                 st.write("Add Deployment:")
+
+                # Build a list of time options in 15-minute steps (00:00 → 23:45)
+                time_options = [
+                    f"{h:02d}:{m:02d}"
+                    for h in range(24)
+                    for m in (0, 15, 30, 45)
+                ]
+
                 c1, c2, c3 = st.columns(3)
                 with c1:
-                    d_start = st.date_input("Start Date", value=file_start_date)
+                    d_start = st.date_input("Start Date", value=file_start_date, key="dep_start_date")
+                    t_start_str = st.selectbox(
+                        "Start Time (15-min)",
+                        time_options,
+                        index=0,           # defaults to 00:00
+                        key="dep_start_time"
+                    )
                 with c2:
-                    d_end = st.date_input("End Date", value=file_end_date)
+                    d_end = st.date_input("End Date", value=file_end_date, key="dep_end_date")
+                    t_end_str = st.selectbox(
+                        "End Time (15-min)",
+                        time_options,
+                        index=len(time_options) - 1,   # defaults to 23:45
+                        key="dep_end_time"
+                    )
                 with c3:
                     d_grp = st.selectbox("Instrument Group", group_names)
-                    
+
                 if st.button("Add Assignment"):
-                    if d_start > d_end:
-                        st.error("Start date must be before end date.")
+                    # Combine date + time into full datetime strings
+                    start_dt_str = f"{d_start} {t_start_str}:00"
+                    end_dt_str   = f"{d_end} {t_end_str}:00"
+
+                    if start_dt_str >= end_dt_str:
+                        st.error("Start datetime must be before end datetime.")
                     else:
                         # Note: lat/lon are now stored at station level, not per deployment
                         new_entry = {
-                            "start": str(d_start),
-                            "end": str(d_end),
+                            "start": start_dt_str,   # e.g. "2024-06-01 08:15:00"
+                            "end":   end_dt_str,     # e.g. "2024-09-30 23:45:00"
                             "group": d_grp
                         }
                         if station_name not in configs:
                             configs[station_name] = {"latitude": latitude, "longitude": longitude, "deployments": []}
-                        
+
                         configs[station_name]["deployments"].append(new_entry)
-                        # Sort by start date
+                        # Sort by start datetime string (ISO format sorts lexicographically)
                         configs[station_name]["deployments"].sort(key=lambda x: x['start'])
                         save_station_configs(configs)
                         st.success("Added deployment!")
@@ -1651,17 +1675,33 @@ def main():
                 
                 st.divider()
                 st.subheader("🔍 Check Active Thresholds")
-                check_date = st.date_input("Preview thresholds for date:", value=file_start_date)
-                
+
+                # Build 15-min time options for the preview picker as well
+                _preview_time_opts = [
+                    f"{h:02d}:{m:02d}"
+                    for h in range(24)
+                    for m in (0, 15, 30, 45)
+                ]
+                _check_col1, _check_col2 = st.columns(2)
+                with _check_col1:
+                    check_date = st.date_input("Preview date:", value=file_start_date, key="preview_date")
+                with _check_col2:
+                    check_time_str = st.selectbox(
+                        "Preview time (15-min):",
+                        _preview_time_opts,
+                        index=0,
+                        key="preview_time"
+                    )
+                check_dt_str = f"{check_date} {check_time_str}:00"
+
                 # Logic to find active group
                 active_grp_name = "None (Using Defaults)"
                 active_grp_thresholds = {}
                 active_sensor_height = 166  # Default
-                
-                start_check = str(check_date)
-                # Check overlapping configs
+
+                # Check overlapping configs using full datetime comparison
                 for cfg in st_cfg:
-                    if cfg['start'] <= start_check <= cfg['end']:
+                    if cfg['start'] <= check_dt_str <= cfg['end']:
                         active_grp_name = cfg['group']
                         grp_data = groups.get(active_grp_name, {})
                         # Handle new nested structure

@@ -2,37 +2,16 @@
     "Station_Name": {
         "latitude": 53.7217,
         "longitude": -125.6417,
-        "deployments": [
-            {
-                "start": "2023-07-04",
-                "end": "2025-05-16",
-                "group": "ClimaVue50"
-            },
-            {
-                "start": "2023-07-04",
-                "end": "2025-05-16",
-                "group": "SR50"
-            },
-            {
-                "start": "2023-07-04",
-                "end": "2025-05-16",
-                "group": "NetRadiometer"
-            },
-            {
-                "start": "2023-07-04",
-                "end": "2025-05-16",
-                "group": "System"
-            }
-        ]
+        "deployments": []
     },
     "02MFW005": {
         "latitude": 53.7217,
         "longitude": -125.6417,
         "deployments": [
             {
-                "start": "2023-07-04",
-                "end": "2024-05-16",
-                "group": "SR50"
+                "start": "2023-05-15 00:00:00",
+                "end": "2025-05-16 23:45:00",
+                "group": "ClimaVue50"
             }
         ]
     },
