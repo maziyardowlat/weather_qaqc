@@ -223,8 +223,8 @@ DEPENDENCY_CONFIG = [
     {'target': 'WindDir',      'sources': ['WS_ms_Avg'],                         'trigger_flags': ['NV'], 'set_flag': 'NV'},
     {'target': 'MaxWS_ms',     'sources': ['WS_ms_Avg'],                         'trigger_flags': ['NV'], 'set_flag': 'NV'},
 
-    # ClimaVUE50 — lightning distance invalid when no strikes
-    {'target': 'Dist_km_Avg',  'sources': ['Strikes_Tot'],                       'trigger_flags': ['NV'], 'set_flag': 'NV'},
+    # ClimaVUE50 — lightning distance NV is applied directly in pipeline
+    # when Strikes_Tot <= 0 (per notes: Dist valid only if strikes > 0).
 
     # -----------------------------------------------------------------------
     # SR50 Sonic Ranger
@@ -2444,14 +2444,14 @@ def main():
                             df[fc] = ""
                         _append_flag(df, fc, mask_no_wind, 'NV')
 
-                # Lightning-distance validity source flag:
+                # Lightning-distance validity flag:
                 # Dist_km_Avg is valid only when Strikes_Tot > 0.
-                # Strikes_Tot (NV when <= 0) -> Dist_km_Avg (NV)
-                if 'Strikes_Tot' in df.columns:
+                # Apply NV directly to Dist_km_Avg when Strikes_Tot <= 0.
+                if 'Strikes_Tot' in df.columns and 'Dist_km_Avg' in df.columns:
                     strikes = pd.to_numeric(df['Strikes_Tot'], errors='coerce')
                     mask_no_strikes = strikes.notna() & (strikes <= 0)
                     if mask_no_strikes.any():
-                        fc = 'Strikes_Tot_Flag'
+                        fc = 'Dist_km_Avg_Flag'
                         if fc not in df.columns:
                             df[fc] = ""
                         _append_flag(df, fc, mask_no_strikes, 'NV')
