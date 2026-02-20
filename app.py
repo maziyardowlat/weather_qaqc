@@ -6,6 +6,8 @@ import os
 import json
 import numpy as np
 import csv
+import io
+import matplotlib.pyplot as plt
 from datetime import datetime, timedelta, timezone
 from suntime import Sun
 from pypdf import PdfReader
@@ -217,9 +219,9 @@ DEPENDENCY_CONFIG = [
     # SlrTF inherits Z from SlrFD_W_Avg
     {'target': 'SlrTF_MJ_Tot', 'sources': ['SlrFD_W_Avg'],                      'trigger_flags': ['Z'], 'set_flag': 'Z'},
 
-    # ClimaVUE50 — wind direction and gust invalid when wind speed == 0 (NW flag applied in pipeline)
-    {'target': 'WindDir',      'sources': ['WS_ms_Avg'],                         'trigger_flags': ['NW'], 'set_flag': 'NV'},
-    {'target': 'MaxWS_ms',     'sources': ['WS_ms_Avg'],                         'trigger_flags': ['NW'], 'set_flag': 'NV'},
+    # ClimaVUE50 — wind direction and gust invalid when wind speed == 0 (NV flag applied in pipeline)
+    {'target': 'WindDir',      'sources': ['WS_ms_Avg'],                         'trigger_flags': ['NV'], 'set_flag': 'NV'},
+    {'target': 'MaxWS_ms',     'sources': ['WS_ms_Avg'],                         'trigger_flags': ['NV'], 'set_flag': 'NV'},
 
     # ClimaVUE50 — lightning distance invalid when no strikes
     {'target': 'Dist_km_Avg',  'sources': ['Strikes_Tot'],                       'trigger_flags': ['NV'], 'set_flag': 'NV'},
@@ -826,6 +828,127 @@ def write_csv_with_units(df, save_path):
     # 3. Data
     df.to_csv(save_path, mode='a', header=False, index=False, na_rep='NaN')
 
+@st.cache_data(show_spinner=False)
+def load_qc_visualization_data(file_path):
+    """
+    Loads QA/QC output CSV and prepares an exploded flag table for visualization.
+    Returns:
+        df: QA/QC data (units row removed if present)
+        flag_long: row-wise flag tokens with columns
+                   [row_idx, flag_col, flag, variable]
+    """
+    df = pd.read_csv(file_path, low_memory=False)
+
+    # Remove units row if present, then parse timestamps for time-series charts
+    if not df.empty and 'TIMESTAMP' in df.columns:
+        if str(df.iloc[0]['TIMESTAMP']) == 'TS':
+            df = df.iloc[1:].reset_index(drop=True)
+        df['TIMESTAMP'] = pd.to_datetime(df['TIMESTAMP'], errors='coerce')
+
+    flag_cols = [c for c in df.columns if c.endswith('_Flag')]
+    empty_flags = pd.DataFrame(columns=['row_idx', 'flag_col', 'flag', 'variable'])
+    if not flag_cols:
+        return df, empty_flags
+
+    token_series = (
+        df[flag_cols]
+        .fillna("")
+        .astype(str)
+        .stack()
+        .str.split(",")
+        .explode()
+        .str.strip()
+    )
+
+    token_series = token_series[
+        (token_series != "")
+        & (~token_series.str.lower().isin(["nan", "none"]))
+    ]
+
+    if token_series.empty:
+        return df, empty_flags
+
+    flag_long = token_series.reset_index()
+    flag_long.columns = ['row_idx', 'flag_col', 'flag']
+    flag_long['variable'] = flag_long['flag_col'].str.replace("_Flag", "", regex=False)
+
+    return df, flag_long
+
+def build_qc_viz_report_xlsx(summary_df, flag_counts, variable_counts, matrix, total_over_time=None, by_flag_over_time=None):
+    """
+    Builds an Excel report for the QA/QC visualization tab.
+    """
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        summary_df.to_excel(writer, sheet_name="Summary", index=False)
+        flag_counts.to_excel(writer, sheet_name="Flag Counts", index=False)
+        variable_counts.to_excel(writer, sheet_name="Variable Counts", index=False)
+        matrix.reset_index().to_excel(writer, sheet_name="Variable x Flag", index=False)
+
+        if total_over_time is not None and not total_over_time.empty:
+            total_over_time.reset_index().to_excel(writer, sheet_name="Time Trend Total", index=False)
+
+        if by_flag_over_time is not None and not by_flag_over_time.empty:
+            by_flag_over_time.reset_index().to_excel(writer, sheet_name="Time Trend By Flag", index=False)
+
+    output.seek(0)
+    return output.getvalue()
+
+def compute_flag_trend_tables(filtered_flags, df_viz, freq_code):
+    """
+    Builds total and per-flag time trend tables for selected flags.
+    """
+    trend = filtered_flags[['row_idx', 'flag']].join(
+        df_viz[['TIMESTAMP']],
+        on='row_idx',
+        how='left'
+    )
+    trend = trend.dropna(subset=['TIMESTAMP'])
+
+    if trend.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    total_over_time = (
+        trend
+        .groupby(pd.Grouper(key='TIMESTAMP', freq=freq_code))
+        .size()
+        .rename("Count")
+        .to_frame()
+    )
+    by_flag_over_time = (
+        trend
+        .groupby([pd.Grouper(key='TIMESTAMP', freq=freq_code), 'flag'])
+        .size()
+        .unstack(fill_value=0)
+    )
+    return total_over_time, by_flag_over_time
+
+def build_trend_png(total_over_time, by_flag_over_time, title):
+    """
+    Renders trend tables as a PNG image (two panels).
+    """
+    fig, axes = plt.subplots(2, 1, figsize=(12, 8), constrained_layout=True)
+
+    total_over_time.plot(ax=axes[0], legend=False, linewidth=2)
+    axes[0].set_title(f"{title} - Total")
+    axes[0].set_xlabel("Time")
+    axes[0].set_ylabel("Count")
+    axes[0].grid(alpha=0.3)
+
+    if not by_flag_over_time.empty:
+        by_flag_over_time.plot(ax=axes[1], linewidth=1.6)
+        axes[1].legend(title="Flag", loc="upper right", fontsize=8)
+    axes[1].set_title(f"{title} - By Flag")
+    axes[1].set_xlabel("Time")
+    axes[1].set_ylabel("Count")
+    axes[1].grid(alpha=0.3)
+
+    png_buffer = io.BytesIO()
+    fig.savefig(png_buffer, format="png", dpi=180)
+    plt.close(fig)
+    png_buffer.seek(0)
+    return png_buffer.getvalue()
+
 # --- UI Components ---
 
 def mapping_editor_ui():
@@ -1041,7 +1164,12 @@ def main():
         os.makedirs(output_dir, exist_ok=True)
 
     # --- Tabs ---
-    tab1, tab2 = st.tabs(["1. Ingestion & Concatenation", "2. QA/QC Processing"])
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "1. Ingestion & Concatenation",
+        "2. QA/QC Processing",
+        "3. QA/QC Visualization",
+        "4. Save Trend Graphs"
+    ])
 
     # --- Tab 1: Ingestion ---
     with tab1:
@@ -2185,21 +2313,21 @@ def main():
                          df.loc[mask_t, flag_col] = np.where(curr == "", "R", curr + ", R")
 
                      
-                # Wind Logic (NW)
+                # Wind Logic (NV)
                 if 'WS_ms_Avg' in df.columns:
                     ws = pd.to_numeric(df['WS_ms_Avg'], errors='coerce').fillna(0)
                     mask_calm = (ws == 0)
                     if mask_calm.any():
                         # Source flag for dependency propagation:
-                        # WS_ms_Avg (NW) -> WindDir/MaxWS_ms (NV)
+                        # WS_ms_Avg (NV) -> WindDir/MaxWS_ms (NV)
                         fc = 'WS_ms_Avg_Flag'
                         if fc not in df.columns:
                             df[fc] = ""
                         curr = df.loc[mask_calm, fc].fillna("").astype(str)
-                        already = curr.str.contains(r'\bNW\b', regex=True)
+                        already = curr.str.contains(r'\bNV\b', regex=True)
                         df.loc[mask_calm, fc] = np.where(
                             already, curr,
-                            np.where(curr == "", "NW", curr + ", NW")
+                            np.where(curr == "", "NV", curr + ", NV")
                         )
 
                 # Lightning-distance validity source flag:
@@ -2496,6 +2624,281 @@ def main():
                     except Exception as e:
                         st.error(f"QA/QC Failed: {e}")
                         st.exception(e)
+
+    # --- Tab 3: Visualization ---
+    with tab3:
+        st.header("3. QA/QC Visualization")
+
+        if os.path.exists(output_dir):
+            qc_files = sorted([f for f in os.listdir(output_dir) if f.endswith("_QC.csv")])
+        else:
+            qc_files = []
+
+        if not qc_files:
+            st.info("No QA/QC output files found. Run Tab 2 first to generate a *_QC.csv file.")
+        else:
+            selected_qc_file = st.selectbox("Select QA/QC File to Visualize", qc_files)
+
+            if selected_qc_file:
+                qc_path = os.path.join(output_dir, selected_qc_file)
+                with st.spinner("Loading QA/QC file..."):
+                    df_viz, flags_long = load_qc_visualization_data(qc_path)
+
+                st.success(f"Loaded: {qc_path}")
+
+                info_col1, info_col2, info_col3 = st.columns(3)
+                info_col1.metric("Rows", f"{len(df_viz):,}")
+                info_col2.metric("Columns", f"{df_viz.shape[1]:,}")
+                if 'TIMESTAMP' in df_viz.columns and df_viz['TIMESTAMP'].notna().any():
+                    t_start = df_viz['TIMESTAMP'].min().strftime("%Y-%m-%d")
+                    t_end = df_viz['TIMESTAMP'].max().strftime("%Y-%m-%d")
+                    info_col3.metric("Date Range", f"{t_start} to {t_end}")
+                else:
+                    info_col3.metric("Date Range", "N/A")
+
+                if flags_long.empty:
+                    st.warning("No *_Flag columns with values were found in this file.")
+                else:
+                    all_flags = sorted(flags_long['flag'].unique().tolist())
+                    default_flags = [f for f in all_flags if f != "P"] or all_flags
+                    selected_flags = st.multiselect(
+                        "Flags to include",
+                        options=all_flags,
+                        default=default_flags,
+                        help="By default, pass flags (P) are excluded so exceptions are easier to inspect."
+                    )
+
+                    if not selected_flags:
+                        st.warning("Select at least one flag to visualize.")
+                    else:
+                        filtered = flags_long[flags_long['flag'].isin(selected_flags)].copy()
+
+                        m1, m2, m3 = st.columns(3)
+                        m1.metric("Total Flag Occurrences", f"{len(filtered):,}")
+                        m2.metric("Rows With Selected Flags", f"{filtered['row_idx'].nunique():,}")
+                        m3.metric("Variables Impacted", f"{filtered['variable'].nunique():,}")
+
+                        flag_counts = (
+                            filtered['flag']
+                            .value_counts()
+                            .rename_axis("Flag")
+                            .reset_index(name="Count")
+                        )
+                        variable_counts = (
+                            filtered['variable']
+                            .value_counts()
+                            .rename_axis("Variable")
+                            .reset_index(name="Count")
+                        )
+
+                        chart_col1, chart_col2 = st.columns(2)
+                        with chart_col1:
+                            st.subheader("Flag Frequency")
+                            st.bar_chart(flag_counts.set_index("Flag"))
+                            st.dataframe(flag_counts, use_container_width=True, hide_index=True)
+
+                        with chart_col2:
+                            st.subheader("Top Variables by Flag Count")
+                            max_top = max(1, min(30, len(variable_counts)))
+                            default_top = min(12, max_top)
+                            top_n = st.slider(
+                                "Number of variables",
+                                min_value=1,
+                                max_value=max_top,
+                                value=default_top,
+                                key="viz_top_variables"
+                            )
+                            st.bar_chart(variable_counts.head(top_n).set_index("Variable"))
+
+                        st.subheader("Flag Count Matrix (Variable x Flag)")
+                        matrix = (
+                            filtered
+                            .groupby(['variable', 'flag'])
+                            .size()
+                            .unstack(fill_value=0)
+                            .sort_index()
+                        )
+                        st.dataframe(matrix, use_container_width=True)
+
+                        freq_choice = "N/A"
+                        total_over_time = pd.DataFrame()
+                        by_flag_over_time = pd.DataFrame()
+
+                        if 'TIMESTAMP' in df_viz.columns and df_viz['TIMESTAMP'].notna().any():
+                            st.subheader("Flags Over Time")
+                            freq_choice = st.selectbox(
+                                "Time aggregation",
+                                ["Daily", "Weekly", "Monthly"],
+                                key="viz_time_freq"
+                            )
+                            freq_map = {"Daily": "D", "Weekly": "W", "Monthly": "M"}
+                            total_over_time, by_flag_over_time = compute_flag_trend_tables(
+                                filtered_flags=filtered,
+                                df_viz=df_viz,
+                                freq_code=freq_map[freq_choice]
+                            )
+                            if not total_over_time.empty:
+                                st.line_chart(total_over_time)
+                                st.area_chart(by_flag_over_time)
+                            else:
+                                st.info("No timestamped rows available for trend charts.")
+
+                        ts_has_values = 'TIMESTAMP' in df_viz.columns and df_viz['TIMESTAMP'].notna().any()
+                        if ts_has_values:
+                            ts_start = df_viz['TIMESTAMP'].min().strftime("%Y-%m-%d")
+                            ts_end = df_viz['TIMESTAMP'].max().strftime("%Y-%m-%d")
+                        else:
+                            ts_start = "N/A"
+                            ts_end = "N/A"
+
+                        summary_df = pd.DataFrame([
+                            {"Metric": "Source File", "Value": selected_qc_file},
+                            {"Metric": "Report Generated (UTC)", "Value": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")},
+                            {"Metric": "Selected Flags", "Value": ", ".join(selected_flags)},
+                            {"Metric": "Total Rows", "Value": len(df_viz)},
+                            {"Metric": "Total Columns", "Value": df_viz.shape[1]},
+                            {"Metric": "Date Range Start", "Value": ts_start},
+                            {"Metric": "Date Range End", "Value": ts_end},
+                            {"Metric": "Total Flag Occurrences", "Value": len(filtered)},
+                            {"Metric": "Rows With Selected Flags", "Value": filtered['row_idx'].nunique()},
+                            {"Metric": "Variables Impacted", "Value": filtered['variable'].nunique()},
+                            {"Metric": "Time Aggregation", "Value": freq_choice},
+                        ])
+
+                        report_bytes = build_qc_viz_report_xlsx(
+                            summary_df=summary_df,
+                            flag_counts=flag_counts,
+                            variable_counts=variable_counts,
+                            matrix=matrix,
+                            total_over_time=total_over_time,
+                            by_flag_over_time=by_flag_over_time,
+                        )
+
+                        report_name = selected_qc_file.replace(".csv", "_visualization_report.xlsx")
+                        st.download_button(
+                            label="Download Visualization Report (Excel)",
+                            data=report_bytes,
+                            file_name=report_name,
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        )
+
+    # --- Tab 4: Save Trend Graphs ---
+    with tab4:
+        st.header("4. Save Trend Graphs")
+        st.caption("Generate and save Daily/Weekly trend graph files from the final QA/QC output.")
+
+        if os.path.exists(output_dir):
+            qc_files_save = sorted([f for f in os.listdir(output_dir) if f.endswith("_QC.csv")])
+        else:
+            qc_files_save = []
+
+        if not qc_files_save:
+            st.info("No QA/QC output files found. Run Tab 2 first to generate a *_QC.csv file.")
+        else:
+            selected_qc_file_save = st.selectbox(
+                "Select QA/QC File",
+                qc_files_save,
+                key="save_graphs_file_select"
+            )
+
+            if selected_qc_file_save:
+                qc_path_save = os.path.join(output_dir, selected_qc_file_save)
+                with st.spinner("Loading QA/QC file..."):
+                    df_save, flags_long_save = load_qc_visualization_data(qc_path_save)
+
+                if flags_long_save.empty:
+                    st.warning("No *_Flag values found in this file.")
+                else:
+                    all_flags_save = sorted(flags_long_save['flag'].unique().tolist())
+                    default_flags_save = [f for f in all_flags_save if f != "P"] or all_flags_save
+
+                    selected_flags_save = st.multiselect(
+                        "Flags to include in saved graphs",
+                        options=all_flags_save,
+                        default=default_flags_save,
+                        key="save_graphs_flags"
+                    )
+                    freq_save = st.multiselect(
+                        "Frequencies to save",
+                        options=["Daily", "Weekly", "Monthly"],
+                        default=["Daily", "Weekly"],
+                        key="save_graphs_freq"
+                    )
+                    default_save_dir = os.path.join(output_dir, "saved_graphs")
+                    save_dir = st.text_input(
+                        "Save directory",
+                        value=default_save_dir,
+                        key="save_graphs_dir"
+                    )
+
+                    if st.button("Generate and Save Graph Files", type="primary", key="save_graphs_btn"):
+                        if not selected_flags_save:
+                            st.warning("Select at least one flag.")
+                        elif not freq_save:
+                            st.warning("Select at least one frequency.")
+                        else:
+                            filtered_save = flags_long_save[
+                                flags_long_save['flag'].isin(selected_flags_save)
+                            ].copy()
+
+                            if filtered_save.empty:
+                                st.warning("No matching flag rows were found for the selected flags.")
+                            else:
+                                os.makedirs(save_dir, exist_ok=True)
+                                created_paths = []
+                                base_name = os.path.splitext(selected_qc_file_save)[0]
+                                run_stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                                freq_map_save = {"Daily": "D", "Weekly": "W", "Monthly": "M"}
+
+                                for freq_label in freq_save:
+                                    total_t, by_flag_t = compute_flag_trend_tables(
+                                        filtered_flags=filtered_save,
+                                        df_viz=df_save,
+                                        freq_code=freq_map_save[freq_label]
+                                    )
+                                    if total_t.empty:
+                                        st.info(f"No timestamped rows available for {freq_label} trend.")
+                                        continue
+
+                                    title = f"{base_name} - {freq_label} Flag Trend"
+                                    png_bytes = build_trend_png(total_t, by_flag_t, title)
+                                    freq_key = freq_label.lower()
+
+                                    png_path = os.path.join(
+                                        save_dir,
+                                        f"{base_name}_{freq_key}_trend_{run_stamp}.png"
+                                    )
+                                    total_csv_path = os.path.join(
+                                        save_dir,
+                                        f"{base_name}_{freq_key}_trend_total_{run_stamp}.csv"
+                                    )
+                                    by_flag_csv_path = os.path.join(
+                                        save_dir,
+                                        f"{base_name}_{freq_key}_trend_by_flag_{run_stamp}.csv"
+                                    )
+
+                                    with open(png_path, "wb") as f:
+                                        f.write(png_bytes)
+                                    total_t.reset_index().to_csv(total_csv_path, index=False)
+                                    by_flag_t.reset_index().to_csv(by_flag_csv_path, index=False)
+
+                                    created_paths.extend([png_path, total_csv_path, by_flag_csv_path])
+
+                                    st.subheader(f"{freq_label} Output")
+                                    st.image(png_bytes, caption=f"{freq_label} trend graph", use_container_width=True)
+                                    st.download_button(
+                                        label=f"Download {freq_label} Graph (PNG)",
+                                        data=png_bytes,
+                                        file_name=os.path.basename(png_path),
+                                        mime="image/png",
+                                        key=f"download_png_{freq_key}_{run_stamp}"
+                                    )
+
+                                if created_paths:
+                                    st.success(f"Saved {len(created_paths)} files to: {save_dir}")
+                                    st.write("Saved files:")
+                                    for path in created_paths:
+                                        st.code(path)
 
 if __name__ == "__main__":
     main()
