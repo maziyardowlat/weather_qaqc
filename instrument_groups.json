@@ -180,20 +180,8 @@
                 "c_min": -200.0,
                 "c_max": 1000.0
             },
-            "stmp_Avg": {
-                "r_min": -40.0,
-                "r_max": 70.0,
-                "c_min": null,
-                "c_max": null
-            },
             "Stmp_Avg": {
                 "r_min": -40.0,
-                "r_max": 70.0,
-                "c_min": null,
-                "c_max": null
-            },
-            "gtmp_Avg": {
-                "r_min": -50.0,
                 "r_max": 70.0,
                 "c_min": null,
                 "c_max": null
@@ -210,7 +198,7 @@
         "sensor_height": 150,
         "thresholds": {
             "BattV_Avg": {
-                "r_min": -9.6,
+                "r_min": 9.6,
                 "r_max": 19.0,
                 "c_min": 10.0,
                 "c_max": 16.0

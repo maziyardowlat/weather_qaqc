@@ -17,6 +17,7 @@
         "aliases": [
             "Ptmp",
             "Panel_Temp",
+            "Ptmp_C_Avg",
             "PTemp",
             "PTemp_C",
             "PTemp_C_Avg"
@@ -28,7 +29,7 @@
             "degC"
         ]
     },
-    "stmp_Avg": {
+    "Stmp_Avg": {
         "aliases": [
             "stmp1",
             "stmp",
@@ -358,7 +359,7 @@
             "W/m^2"
         ]
     },
-    "gtmp_Avg": {
+    "Gtmp_Avg": {
         "aliases": [
             "stmp2",
             "Ground_Temp",

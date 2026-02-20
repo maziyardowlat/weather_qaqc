@@ -35,21 +35,14 @@ STATION_CONFIG_FILE = "station_configs.json"
 # ---------------------------------------------------------------------------
 SENSOR_THRESHOLDS = {
     # --- CR350 Data Logger ---
-    'BattV_Avg':      {'r_min': -9.6,  'r_max': 19.0,   'c_min': 10.0,  'c_max': 16.0},
+    'BattV_Avg':      {'r_min': +9.6,  'r_max': 19.0,   'c_min': 10.0,  'c_max': 16.0},
     'RECORD':         {'r_min': 0,     'r_max': None,   'c_min': None,  'c_max': None},
-    'Ptmp_C_Avg':     {'r_min': -40.0, 'r_max': 70.0,   'c_min': None,  'c_max': None},
-    # PTemp_C_Avg is the canonical name used in the app; alias handled via column_mapping
     'PTemp_C_Avg':    {'r_min': -40.0, 'r_max': 70.0,   'c_min': None,  'c_max': None},
 
     # --- Apogee ST-110 Ground Surface Temperature Probe ---
     'Stmp_Avg':       {'r_min': -40.0, 'r_max': 70.0,   'c_min': None,  'c_max': None},
-    # Alias used in app
-    'stmp_Avg':       {'r_min': -40.0, 'r_max': 70.0,   'c_min': None,  'c_max': None},
-
     # --- Campbell Scientific Model-109 Ground Temperature Probe ---
     'Gtmp_Avg':       {'r_min': -50.0, 'r_max': 70.0,   'c_min': None,  'c_max': None},
-    # Alias used in app
-    'gtmp_Avg':       {'r_min': -50.0, 'r_max': 70.0,   'c_min': None,  'c_max': None},
 
     # --- Campbell Scientific ClimaVUE50 Compact Weather Sensor ---
     'AirT_C_Avg':     {'r_min': -50.0, 'r_max': 60.0,   'c_min': None,  'c_max': None},
@@ -151,9 +144,7 @@ INITIAL_INSTRUMENT_GROUPS = {
             'LWnet_Avg':    {'r_min': -200,  'r_max': 200,  'c_min': -150, 'c_max': 100},
             'SWalbedo_Avg': {'r_min': 0,     'r_max': 1,    'c_min': 0.05, 'c_max': 0.95},
             'NR_Avg':       {'r_min': -2200, 'r_max': 2200, 'c_min': -200, 'c_max': 1000},
-            'stmp_Avg':     {'r_min': -40,   'r_max': 70,   'c_min': None, 'c_max': None},
             'Stmp_Avg':     {'r_min': -40,   'r_max': 70,   'c_min': None, 'c_max': None},
-            'gtmp_Avg':     {'r_min': -50,   'r_max': 70,   'c_min': None, 'c_max': None},
             'Gtmp_Avg':     {'r_min': -50,   'r_max': 70,   'c_min': None, 'c_max': None},
         },
     },
@@ -292,11 +283,59 @@ ADD_CAUTION_FLAG = [
     'BP_hPa_Avg', 'RHT_C_Avg', 'RHT_Avg', 'TiltNS_deg_Avg', 'TiltWE_deg_Avg',
     'DT_Avg', 'Q_Avg', 'TCDT_Avg', 'DBTCDT_Avg',
     'SWin_Avg', 'SWout_Avg', 'LWin_Avg', 'LWout_Avg', 'SWnet_Avg',
-    'LWnet_Avg', 'SWalbedo_Avg', 'NR_Avg', 'stmp_Avg', 'gtmp_Avg',
-    'Stmp_Avg', 'Gtmp_Avg',
+    'LWnet_Avg', 'SWalbedo_Avg', 'NR_Avg','Stmp_Avg', 'Gtmp_Avg',
 ]
 
+# Canonical sensor column names with accepted alias spellings.
+COLUMN_ALIASES = {
+    'stmp_Avg': 'Stmp_Avg',
+    'gtmp_Avg': 'Gtmp_Avg',
+}
+
 # --- Helper Functions ---
+
+def canonicalize_column_name(name):
+    return COLUMN_ALIASES.get(name, name)
+
+def normalize_df_column_aliases(df):
+    """
+    Canonicalize known alias columns in a DataFrame.
+    If both alias and canonical columns exist, merge by filling canonical NaNs
+    with alias values, then drop the alias column.
+    """
+    if df is None or df.empty:
+        return df
+    for alias, canonical in COLUMN_ALIASES.items():
+        if alias not in df.columns:
+            continue
+        if canonical in df.columns:
+            df[canonical] = df[canonical].where(df[canonical].notna(), df[alias])
+            df = df.drop(columns=[alias])
+        else:
+            df = df.rename(columns={alias: canonical})
+    return df
+
+def normalize_group_threshold_aliases(groups):
+    """
+    Canonicalize known alias keys inside instrument-group thresholds.
+    """
+    if not isinstance(groups, dict):
+        return groups
+    for _, grp_data in groups.items():
+        if not isinstance(grp_data, dict):
+            continue
+        thresholds = grp_data.get("thresholds", grp_data if isinstance(grp_data, dict) else {})
+        if not isinstance(thresholds, dict):
+            continue
+        for alias, canonical in COLUMN_ALIASES.items():
+            if alias not in thresholds:
+                continue
+            if canonical not in thresholds:
+                thresholds[canonical] = thresholds[alias]
+            del thresholds[alias]
+        if "thresholds" in grp_data:
+            grp_data["thresholds"] = thresholds
+    return groups
 
 def load_json_file(filepath, default=None):
     if default is None: default = {}
@@ -333,7 +372,11 @@ def load_instrument_groups():
         # Deep-copy the initial structure so mutations don't affect the constant
         import copy
         groups = copy.deepcopy(INITIAL_INSTRUMENT_GROUPS)
+        groups = normalize_group_threshold_aliases(groups)
         save_json_file(GROUPS_FILE, groups)
+        return groups
+    groups = normalize_group_threshold_aliases(groups)
+    save_json_file(GROUPS_FILE, groups)
     return groups
 
 
@@ -721,6 +764,9 @@ def process_file_data(uploaded_file, mapping, metadata, data_id, station_id, ski
         clean_mapping = {k: v for k, v in mapping.items() if k in df.columns and v != k and v != "REMOVE"}
         if clean_mapping:
             df = df.rename(columns=clean_mapping)
+
+        # Canonicalize alias column names (e.g., stmp_Avg -> Stmp_Avg)
+        df = normalize_df_column_aliases(df)
             
         # Standardize Timestamp
         if 'TIMESTAMP' in df.columns:
@@ -1253,7 +1299,7 @@ def main():
                         # Auto-Map Logic
                         current_mapping = {}
                         for col in columns:
-                            target = col 
+                            target = canonicalize_column_name(col)
                             # Try to find match in JSON
                             for std_name, info in mapping_ref.items():
                                 # Handle new dict format (with units) or old list format
@@ -1606,7 +1652,7 @@ def main():
                         # Select Columns
                         # Get all available columns from mapping for suggestions
                         mapping = load_mapping()
-                        all_known_cols = list(mapping.keys()) + list(DEFAULT_THRESHOLDS.keys())
+                        all_known_cols = [canonicalize_column_name(c) for c in (list(mapping.keys()) + list(DEFAULT_THRESHOLDS.keys()))]
                         all_known_cols = sorted(list(set(all_known_cols)))
                         
                         # Multiselect
@@ -1616,6 +1662,7 @@ def main():
                         extras = [c for c in current_cols if c not in all_known_cols]
                         
                         selected_cols = st.multiselect("Included Columns", all_known_cols + extras, default=default_sel + extras)
+                        selected_cols = list(dict.fromkeys([canonicalize_column_name(c) for c in selected_cols]))
                         
                         # Threshold Editor for Selected Cols
                         if selected_cols:
