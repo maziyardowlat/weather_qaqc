@@ -266,10 +266,10 @@ DEPENDENCY_CONFIG = [
     {'target': 'SWalbedo_Avg', 'sources': ['SWin_Avg'],                          'trigger_flags': ['Z'], 'set_flag': 'Z'},
     # DZ is applied programmatically in the pipeline (SWin < 20 W/m²), not via dependency propagation
 
-    # NR_Avg depends on all four radiation components
-    {'target': 'NR_Avg',       'sources': ['SWin_Avg', 'SWout_Avg', 'LWin_Avg', 'LWout_Avg'], 'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
-    # NR gets DC if any component is C (per Notes: "Flag DC if SWin, SWout, LWin, LWout == C")
-    {'target': 'NR_Avg',       'sources': ['SWin_Avg', 'SWout_Avg', 'LWin_Avg', 'LWout_Avg'], 'trigger_flags': ['C'], 'set_flag': 'DC'},
+    # NR_Avg depends on SWnet/LWnet plus incoming/outgoing longwave components
+    {'target': 'NR_Avg',       'sources': ['SWnet_Avg', 'LWnet_Avg', 'LWin_Avg', 'LWout_Avg'], 'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
+    # NR gets DC if any dependency is C
+    {'target': 'NR_Avg',       'sources': ['SWnet_Avg', 'LWnet_Avg', 'LWin_Avg', 'LWout_Avg'], 'trigger_flags': ['C'], 'set_flag': 'DC'},
 ]
 
 # Solar columns that get the nighttime Z-flag check
@@ -303,7 +303,7 @@ def normalize_df_column_aliases(df):
     If both alias and canonical columns exist, merge by filling canonical NaNs
     with alias values, then drop the alias column.
     """
-    if df is None or df.empty:
+    if df is None:
         return df
     for alias, canonical in COLUMN_ALIASES.items():
         if alias not in df.columns:
