@@ -86,12 +86,6 @@
                 "c_min": -3.0,
                 "c_max": 3.0
             },
-            "TileWE_deg_Avg": {
-                "r_min": -90.0,
-                "r_max": 90.0,
-                "c_min": -3.0,
-                "c_max": 3.0
-            },
             "TiltWE_deg_Avg": {
                 "r_min": -90.0,
                 "r_max": 90.0,

@@ -68,16 +68,14 @@ SENSOR_THRESHOLDS = {
     'RH':             {'r_min': 0.0,   'r_max': 100.0,  'c_min': None,  'c_max': None},
     'BP_hPa_Avg':     {'r_min': 500.0, 'r_max': 1100.0, 'c_min': None,  'c_max': None},
     'TiltNS_deg_Avg': {'r_min': -90.0, 'r_max': 90.0,   'c_min': -3.0,  'c_max': 3.0},
-    # Note: sheet uses 'TileWE_deg_Avg' (typo) — we keep both spellings
     'TiltWE_deg_Avg': {'r_min': -90.0, 'r_max': 90.0,   'c_min': -3.0,  'c_max': 3.0},
-    'TileWE_deg_Avg': {'r_min': -90.0, 'r_max': 90.0,   'c_min': -3.0,  'c_max': 3.0},
     'SlrTF_MJ_Tot':   {'r_min': 0.0,   'r_max': 1.575,  'c_min': 0.0,   'c_max': 1.215},
 
     # --- Campbell Scientific SR50 Sonic Ranger ---
-    # DT max = H+5 (sensor-height-dependent) — resolved at runtime; stored as sentinel string
-    'DT_Avg':         {'r_min': 50.0,  'r_max': 'H+5',  'c_min': None,  'c_max': None},
+    # DT hard limits from RefSensorThresholds.xlsx
+    'DT_Avg':         {'r_min': 50.0,  'r_max': 1000.0, 'c_min': None,  'c_max': None},
     'Q_Avg':          {'r_min': 162.0, 'r_max': 600.0,  'c_min': None,  'c_max': 210.0},
-    'TCDT_Avg':       {'r_min': 50.0,  'r_max': 'H+5',  'c_min': None,  'c_max': None},
+    'TCDT_Avg':       {'r_min': 50.0,  'r_max': 1000.0, 'c_min': None,  'c_max': None},
     # DBTCDT max = H-50 (sensor-height-dependent)
     'DBTCDT_Avg':     {'r_min': 0.0,   'r_max': 'H-50', 'c_min': None,  'c_max': None},
 
@@ -128,7 +126,6 @@ INITIAL_INSTRUMENT_GROUPS = {
             'RH':             {'r_min': 0,     'r_max': 100,   'c_min': None,  'c_max': None},
             'BP_hPa_Avg':     {'r_min': 500,   'r_max': 1100,  'c_min': None,  'c_max': None},
             'TiltNS_deg_Avg': {'r_min': -90,   'r_max': 90,    'c_min': -3,    'c_max': 3},
-            'TileWE_deg_Avg': {'r_min': -90,   'r_max': 90,    'c_min': -3,    'c_max': 3},
             'TiltWE_deg_Avg': {'r_min': -90,   'r_max': 90,    'c_min': -3,    'c_max': 3},
             'SlrTF_MJ_Tot':   {'r_min': 0,     'r_max': 1.575, 'c_min': 0,     'c_max': 1.215},
         },
@@ -199,13 +196,13 @@ DEPENDENCY_CONFIG = [
     # ClimaVUE50 — tilt affects solar flux, rain, and derived columns
     # -----------------------------------------------------------------------
     # Tilt R (> |90°|) → solar flux gets DC (sensor knocked over)
-    {'target': 'SlrFD_W_Avg',  'sources': ['TiltNS_deg_Avg', 'TileWE_deg_Avg'], 'trigger_flags': ['R'], 'set_flag': 'DC'},
+    {'target': 'SlrFD_W_Avg',  'sources': ['TiltNS_deg_Avg', 'TiltWE_deg_Avg'], 'trigger_flags': ['R'], 'set_flag': 'DC'},
     # Tilt T or C (> |3°| but < |90°|) → solar flux gets T flag (tilt exceeds accuracy)
-    {'target': 'SlrFD_W_Avg',  'sources': ['TiltNS_deg_Avg', 'TileWE_deg_Avg'], 'trigger_flags': ['T', 'C'], 'set_flag': 'T'},
+    {'target': 'SlrFD_W_Avg',  'sources': ['TiltNS_deg_Avg', 'TiltWE_deg_Avg'], 'trigger_flags': ['T', 'C'], 'set_flag': 'T'},
     # Tilt R → rain gets DC
-    {'target': 'Rain_mm_Tot',  'sources': ['TiltNS_deg_Avg', 'TileWE_deg_Avg'], 'trigger_flags': ['R'], 'set_flag': 'DC'},
+    {'target': 'Rain_mm_Tot',  'sources': ['TiltNS_deg_Avg', 'TiltWE_deg_Avg'], 'trigger_flags': ['R'], 'set_flag': 'DC'},
     # Tilt T or C → rain gets T
-    {'target': 'Rain_mm_Tot',  'sources': ['TiltNS_deg_Avg', 'TileWE_deg_Avg'], 'trigger_flags': ['T', 'C'], 'set_flag': 'T'},
+    {'target': 'Rain_mm_Tot',  'sources': ['TiltNS_deg_Avg', 'TiltWE_deg_Avg'], 'trigger_flags': ['T', 'C'], 'set_flag': 'T'},
 
     # ClimaVUE50 — solar flux affects air temperature (energy balance correction)
     # AirT gets DC if SlrFD_W_Avg is DC or T (per Notes: "flag DC if SlrFD_W_Avg == DC or T")
@@ -285,7 +282,7 @@ DEPENDENCY_CONFIG = [
 ]
 
 # Solar columns that get the nighttime Z-flag check
-SOLAR_COLUMNS = ['SlrFD_W_Avg', 'SWin_Avg']
+SOLAR_COLUMNS = ['SlrFD_W_Avg', 'SWin_Avg', 'SWout_Avg']
 
 # Columns that receive the manual 'C' (caution) flag when the user ticks
 # "Add Caution Flag" in the ingestion UI — covers all sensor data columns.
@@ -293,7 +290,7 @@ ADD_CAUTION_FLAG = [
     'BattV_Avg', 'PTemp_C_Avg', 'Ptmp_C_Avg', 'SlrFD_W_Avg', 'Dist_km_Avg',
     'WS_ms_Avg', 'MaxWS_ms', 'MaxWS_ms_Avg', 'AirT_C_Avg', 'VP_hPa_Avg',
     'BP_hPa_Avg', 'RHT_C_Avg', 'RHT_Avg', 'TiltNS_deg_Avg', 'TiltWE_deg_Avg',
-    'TileWE_deg_Avg', 'DT_Avg', 'Q_Avg', 'TCDT_Avg', 'DBTCDT_Avg',
+    'DT_Avg', 'Q_Avg', 'TCDT_Avg', 'DBTCDT_Avg',
     'SWin_Avg', 'SWout_Avg', 'LWin_Avg', 'LWout_Avg', 'SWnet_Avg',
     'LWnet_Avg', 'SWalbedo_Avg', 'NR_Avg', 'stmp_Avg', 'gtmp_Avg',
     'Stmp_Avg', 'Gtmp_Avg',
@@ -2141,22 +2138,38 @@ def main():
                          df.loc[mask_t, flag_col] = np.where(curr == "", "R", curr + ", R")
 
                      
-                     # Summer Snow
-                     if 'TIMESTAMP' in df.columns:
-                         months = df['TIMESTAMP'].dt.month
-                         mask_sf = months.isin([6,7,8,9]) & (vals > 0)
-                         if mask_sf.any():
-                             curr = df.loc[mask_sf, flag_col].fillna("").astype(str)
-                             df.loc[mask_sf, flag_col] = np.where(curr == "", "SF", curr + ", SF")
-
                 # Wind Logic (NW)
-                if 'WS_ms_Avg' in df.columns and 'WindDir' in df.columns:
+                if 'WS_ms_Avg' in df.columns:
                     ws = pd.to_numeric(df['WS_ms_Avg'], errors='coerce').fillna(0)
                     mask_calm = (ws == 0)
                     if mask_calm.any():
-                        fc = 'WindDir_Flag'
+                        # Source flag for dependency propagation:
+                        # WS_ms_Avg (NW) -> WindDir/MaxWS_ms (NV)
+                        fc = 'WS_ms_Avg_Flag'
+                        if fc not in df.columns:
+                            df[fc] = ""
                         curr = df.loc[mask_calm, fc].fillna("").astype(str)
-                        df.loc[mask_calm, fc] = np.where(curr == "", "NW", curr + ", NW")
+                        already = curr.str.contains(r'\bNW\b', regex=True)
+                        df.loc[mask_calm, fc] = np.where(
+                            already, curr,
+                            np.where(curr == "", "NW", curr + ", NW")
+                        )
+
+                # Lightning-distance validity source flag:
+                # Strikes_Tot (NV when no strikes) -> Dist_km_Avg (NV)
+                if 'Strikes_Tot' in df.columns:
+                    strikes = pd.to_numeric(df['Strikes_Tot'], errors='coerce')
+                    mask_no_strikes = (strikes == 0)
+                    if mask_no_strikes.any():
+                        fc = 'Strikes_Tot_Flag'
+                        if fc not in df.columns:
+                            df[fc] = ""
+                        curr = df.loc[mask_no_strikes, fc].fillna("").astype(str)
+                        already = curr.str.contains(r'\bNV\b', regex=True)
+                        df.loc[mask_no_strikes, fc] = np.where(
+                            already, curr,
+                            np.where(curr == "", "NV", curr + ", NV")
+                        )
 
                 # Albedo Logic (SU)
                 if 'SWalbedo_Avg' in df.columns:
@@ -2167,7 +2180,7 @@ def main():
                         curr = df.loc[mask_su, fc].fillna("").astype(str)
                         df.loc[mask_su, fc] = np.where(curr == "", "SU", curr + ", SU")
 
-                # Note: Tilt columns (TiltNS_deg_Avg, TileWE_deg_Avg) are handled entirely by:
+                # Note: Tilt columns (TiltNS_deg_Avg, TiltWE_deg_Avg) are handled entirely by:
                 #   1. The main threshold loop above (applies C for >|3°|, R for >|90°|)
                 #   2. DEPENDENCY_CONFIG (propagates T to SlrFD_W_Avg/Rain_mm_Tot when tilt has C,
                 #      and DC when tilt has R)
@@ -2211,39 +2224,51 @@ def main():
 
                             if len(night_indices) > 0:
                                 for scol in SOLAR_COLUMNS:
-                                    if scol in df.columns:
-                                        vals = pd.to_numeric(df.loc[night_indices, scol], errors='coerce').fillna(0)
-                                        mask_nz = (vals.abs() > 0.0001)
-                                        if mask_nz.any():
-                                            idx = vals[mask_nz].index
-                                            fc = f"{scol}_Flag"
-                                            curr = df.loc[idx, fc].fillna("").astype(str)
-                                            df.loc[idx, fc] = np.where(curr == "", "Z", curr + ", Z")
+                                    if scol not in df.columns:
+                                        continue
+                                    vals = pd.to_numeric(df.loc[night_indices, scol], errors='coerce').fillna(0)
+                                    # Per RefSensorThresholds notes:
+                                    #   SlrFD_W_Avg: Z when > 0 at night
+                                    #   SWin_Avg/SWout_Avg: Z when < 0 at night
+                                    if scol == 'SlrFD_W_Avg':
+                                        mask_z = vals > 0.0001
+                                    else:
+                                        mask_z = vals < -0.0001
+                                    if mask_z.any():
+                                        idx = vals[mask_z].index
+                                        fc = f"{scol}_Flag"
+                                        curr = df.loc[idx, fc].fillna("").astype(str)
+                                        already = curr.str.contains(r'\bZ\b', regex=True)
+                                        df.loc[idx, fc] = np.where(
+                                            already, curr,
+                                            np.where(curr == "", "Z", curr + ", Z")
+                                        )
 
                 # 4. System-level propagation: BV (battery voltage R) and PT (panel temp R)
                 # When BattV_Avg or PTemp_C_Avg is flagged R, all other sensor columns
                 # get BV or PT appended to their flag (per Flags_Depend in RefSensorThresholds).
                 # This is done programmatically because it affects every column.
                 system_propagations = [
-                    ('BattV_Avg', 'BV'),
-                    ('PTemp_C_Avg', 'PT'),
-                    ('Ptmp_C_Avg', 'PT'),
+                    ('BattV_Avg', 'R', 'BV'),
+                    ('PTemp_C_Avg', 'R', 'PT'),
+                    ('Ptmp_C_Avg', 'R', 'PT'),
+                    ('RECORD', 'LR', 'LR'),
                 ]
-                for src_col, prop_flag in system_propagations:
+                for src_col, trigger_flag, prop_flag in system_propagations:
                     src_fc = f"{src_col}_Flag"
                     if src_fc not in df.columns:
                         continue
-                    # Find rows where the source column has an R flag
-                    mask_src_r = df[src_fc].fillna("").astype(str).str.contains(r'\bR\b', regex=True)
-                    if not mask_src_r.any():
+                    # Find rows where the source column has the trigger flag
+                    mask_src = df[src_fc].fillna("").astype(str).str.contains(rf'\b{trigger_flag}\b', regex=True)
+                    if not mask_src.any():
                         continue
                     # Propagate to all other sensor columns (skip metadata, TIMESTAMP, RECORD, and the source itself)
                     skip_cols = {'TIMESTAMP', 'RECORD', src_col, src_fc}
                     for col in df.columns:
                         if col.endswith('_Flag') and col not in skip_cols:
-                            curr = df.loc[mask_src_r, col].fillna("").astype(str)
+                            curr = df.loc[mask_src, col].fillna("").astype(str)
                             already = curr.str.contains(rf'\b{prop_flag}\b', regex=True)
-                            df.loc[mask_src_r, col] = np.where(
+                            df.loc[mask_src, col] = np.where(
                                 already, curr,
                                 np.where(curr == "", prop_flag, curr + ", " + prop_flag)
                             )
@@ -2325,13 +2350,11 @@ def main():
                        curr = df.loc[mask_fail, tfc].fillna("").astype(str)
                        df.loc[mask_fail, tfc] = np.where(curr == "", dep['set_flag'], curr + ", " + dep['set_flag'])
 
-                # 10. SF (Snow Free period) — Sep 1 through Jun 30
-                # Per FlagLibrary: SF = snow-free period. Months 9–12 and 1–6.
+                # 10. SF (Snow Free period) — months 6,7,8,9 only
                 # Any positive snow depth reading in this period is suspicious.
                 if 'DBTCDT_Avg' in df.columns and 'TIMESTAMP' in df.columns:
                     months = df['TIMESTAMP'].dt.month
-                    # Snow-free months: September (9) through June (6)
-                    snow_free_months = [9, 10, 11, 12, 1, 2, 3, 4, 5, 6]
+                    snow_free_months = [6, 7, 8, 9]
                     vals_sd = pd.to_numeric(df['DBTCDT_Avg'], errors='coerce')
                     mask_sf = months.isin(snow_free_months) & (vals_sd > 0)
                     if mask_sf.any():
