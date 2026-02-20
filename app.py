@@ -697,43 +697,49 @@ def parse_metadata_log(xlsx_file, raw_filename=None, df_timestamps=None):
                 result['field_time'] = {'in': dt_in, 'out': dt_out}
                 break  # first match wins; user can edit if wrong
 
-        # --- 2. Find Data_ID: prefer Site Visit row on filename date, fall back to Data Download ---
+        # --- 2. Find Data_ID from 'Data Download' rows (authoritative source) ---
         # Strategy:
-        #   a) If we have a filename date, find the 'Site Visit' row on that date and use
-        #      its Data/Visit/Script_ID as the Data ID. This is the visit ID (e.g. 02FW005-2023-002)
-        #      which is what the user wants in the Data ID column.
-        #   b) If no Site Visit match, fall back to the 'Data Download' row whose File_name
-        #      matches the raw filename (original behaviour).
+        #   a) Prefer the Data Download row whose File_name matches raw_filename.
+        #   b) If filename matching fails (legacy naming mismatch), fall back to the
+        #      nearest Data Download row date (within +/- 2 days of filename date).
         raw_stem = os.path.splitext(os.path.basename(raw_filename or ''))[0].lower()
         matched_download_date = None
 
-        # (a) Site Visit match by filename date
-        if filename_date is not None:
-            for row in rows:
-                if str(row.get('Event_type', '')).strip() != 'Site Visit':
-                    continue
-                date_val = row.get('Date')
-                if date_val is None:
-                    continue
-                row_date = date_val.date() if hasattr(date_val, 'date') else date_val
-                if abs((row_date - filename_date).days) <= 2:
-                    visit_id = str(row.get('Data/Visit/Script_ID', '') or '').strip()
-                    if visit_id and visit_id.upper() != 'NULL':
-                        result['data_id'] = visit_id
-                        matched_download_date = date_val  # use visit date for script lookup
-                        break
+        data_download_rows = [
+            r for r in rows
+            if str(r.get('Event_type', '')).strip() == 'Data Download'
+        ]
 
-        # (b) Fallback: Data Download row whose File_name matches the raw filename
-        if result['data_id'] is None:
-            for row in rows:
-                if str(row.get('Event_type', '')).strip() != 'Data Download':
-                    continue
-                file_name_cell = str(row.get('File_name', '') or '').strip()
-                cell_stem = os.path.splitext(file_name_cell)[0].lower()
-                if raw_stem and (raw_stem == cell_stem or raw_stem in cell_stem or cell_stem in raw_stem):
-                    result['data_id'] = str(row.get('Data/Visit/Script_ID', '') or '').strip() or None
-                    matched_download_date = row.get('Date')
-                    break  # use first match
+        matched_download_row = None
+
+        # (a) Direct filename match
+        for row in data_download_rows:
+            file_name_cell = str(row.get('File_name', '') or '').strip()
+            cell_stem = os.path.splitext(file_name_cell)[0].lower()
+            if raw_stem and (raw_stem == cell_stem or raw_stem in cell_stem or cell_stem in raw_stem):
+                matched_download_row = row
+                break
+
+        # (b) Date-nearest fallback (within +/- 2 days)
+        if matched_download_row is None:
+            target_date = filename_date if filename_date is not None else (ts_max.date() if ts_max is not None else None)
+            if target_date is not None:
+                candidates = []
+                for row in data_download_rows:
+                    date_val = row.get('Date')
+                    if date_val is None:
+                        continue
+                    row_date = date_val.date() if hasattr(date_val, 'date') else date_val
+                    day_diff = abs((row_date - target_date).days)
+                    if day_diff <= 2:
+                        candidates.append((day_diff, row))
+                if candidates:
+                    candidates.sort(key=lambda x: x[0])
+                    matched_download_row = candidates[0][1]
+
+        if matched_download_row is not None:
+            result['data_id'] = str(matched_download_row.get('Data/Visit/Script_ID', '') or '').strip() or None
+            matched_download_date = matched_download_row.get('Date')
 
         # --- 3. Find Script_ID from most recent 'Script Change' on or before the matched date ---
         script_rows = [
@@ -811,6 +817,9 @@ def process_file_data(uploaded_file, mapping, metadata, data_id, station_id, ski
         # Standardize Timestamp
         if 'TIMESTAMP' in df.columns:
             df['TIMESTAMP'] = pd.to_datetime(df['TIMESTAMP'])
+
+        # Constant station-local UTC offset tag (metadata column, no flag column)
+        df['UTC Offset'] = '-07:00'
         
         # Add Metadata Columns
         df['Data_ID'] = str(data_id)
@@ -845,6 +854,8 @@ def write_csv_with_units(df, save_path):
             
             if col == 'TIMESTAMP': 
                 unit_val = 'TS'
+            elif col == 'UTC Offset':
+                unit_val = 'UTC'
             elif col == 'RECORD': 
                 unit_val = 'RN'
             elif col.endswith('_Flag'): 
@@ -1585,7 +1596,9 @@ def main():
                         
                         # Time processing
                         if 'TIMESTAMP' in full_df.columns:
-                            full_df = full_df.sort_values('TIMESTAMP')
+                            # Stable sort keeps deterministic precedence when overlapping
+                            # timestamps exist across multiple source files.
+                            full_df = full_df.sort_values('TIMESTAMP', kind='mergesort')
                             full_df = full_df.drop_duplicates(subset=['TIMESTAMP'], keep='first')
                             full_df = full_df.set_index('TIMESTAMP')
                             
@@ -1602,6 +1615,8 @@ def main():
                             # Fill Metadata
                             # Station ID is constant
                             df_final['Station_ID'] = df_final['Station_ID'].fillna(station_name)
+                            if 'UTC Offset' in df_final.columns:
+                                df_final['UTC Offset'] = df_final['UTC Offset'].fillna('-07:00')
                             # Others ffill/bfill
                             for mc in meta_cols:
                                 if mc in df_final.columns:
@@ -1613,7 +1628,10 @@ def main():
                             # 3. Check M (Missing)
                             # 4. Check V (Field Visits)
                             
-                            data_cols = [c for c in df_final.columns if c not in meta_cols and c != 'TIMESTAMP' and c != 'RECORD']
+                            data_cols = [
+                                c for c in df_final.columns
+                                if c not in meta_cols and c not in ['TIMESTAMP', 'UTC Offset', 'RECORD']
+                            ]
                             
                             # Collect all field visit windows from all uploaded files.
                             # Each entry is either:
@@ -1694,6 +1712,8 @@ def main():
                             # Reorder Columns
                             # Interleave Data and Flags
                             ordered_cols = ['TIMESTAMP']
+                            if 'UTC Offset' in df_final.columns:
+                                ordered_cols.append('UTC Offset')
                             
                             # Handle RECORD and RECORD_Flag
                             if 'RECORD' in df_final.columns:
@@ -1703,8 +1723,8 @@ def main():
                                 ordered_cols.append('RECORD_Flag')
 
                             # Identify data columns (exclude reserved)
-                            # Reserved: TIMESTAMP, RECORD, RECORD_Flag, Meta Cols, and ALL Flag columns (we add flags manually next to data)
-                            reserved = set(['TIMESTAMP', 'RECORD', 'RECORD_Flag']) | set(meta_cols) | set([c for c in df_final.columns if c.endswith("_Flag")])
+                            # Reserved: TIMESTAMP, UTC Offset, RECORD, RECORD_Flag, Meta Cols, and ALL Flag columns
+                            reserved = set(['TIMESTAMP', 'UTC Offset', 'RECORD', 'RECORD_Flag']) | set(meta_cols) | set([c for c in df_final.columns if c.endswith("_Flag")])
                             data_cols = [c for c in df_final.columns if c not in reserved]
 
                             # Add data columns and their flags
@@ -2163,6 +2183,35 @@ def main():
                     )
                     df.loc[apply_mask, flag_col] = new_flags
 
+                def _normalize_flag_cell(val):
+                    """
+                    Normalize a flag-cell string by removing blanks/nan tokens and
+                    de-duplicating tokens while preserving first-seen order.
+                    """
+                    if val is None:
+                        return ""
+                    if isinstance(val, float) and np.isnan(val):
+                        return ""
+                    text = str(val).strip()
+                    if text == "" or text.lower() in ["nan", "none"]:
+                        return ""
+
+                    seen = set()
+                    ordered = []
+                    for token in text.split(","):
+                        t = token.strip()
+                        if not t or t.lower() in ["nan", "none"]:
+                            continue
+                        if t in seen:
+                            continue
+                        seen.add(t)
+                        ordered.append(t)
+                    return ", ".join(ordered)
+
+                def _dedupe_all_flag_columns(df):
+                    for fc in [c for c in df.columns if c.endswith("_Flag")]:
+                        df[fc] = df[fc].apply(_normalize_flag_cell)
+
                 # Helper: extract thresholds dict from an instrument-group entry
                 def _get_grp_thresholds(grp_data):
                     if isinstance(grp_data, dict) and "thresholds" in grp_data:
@@ -2173,7 +2222,7 @@ def main():
                 qc_cols = [
                     c for c in df.columns
                     if not c.endswith('_Flag')
-                    and c not in ['TIMESTAMP', 'RECORD', 'Data_ID', 'Station_ID',
+                    and c not in ['TIMESTAMP', 'UTC Offset', 'RECORD', 'Data_ID', 'Station_ID',
                                   'Logger_ID', 'Logger_Script', 'Logger_Software']
                 ]
 
@@ -2409,15 +2458,6 @@ def main():
                             np.where(curr == "", "NV", curr + ", NV")
                         )
 
-                # Albedo Logic (SU)
-                if 'SWalbedo_Avg' in df.columns:
-                    alb = pd.to_numeric(df['SWalbedo_Avg'], errors='coerce')
-                    mask_su = (alb < 0.1) | (alb > 0.95)
-                    if mask_su.any():
-                        fc = 'SWalbedo_Avg_Flag'
-                        curr = df.loc[mask_su, fc].fillna("").astype(str)
-                        df.loc[mask_su, fc] = np.where(curr == "", "SU", curr + ", SU")
-
                 # Note: Tilt columns (TiltNS_deg_Avg, TiltWE_deg_Avg) are handled entirely by:
                 #   1. The main threshold loop above (applies C for >|3°|, R for >|90°|)
                 #   2. DEPENDENCY_CONFIG (propagates T to SlrFD_W_Avg/Rain_mm_Tot when tilt has C,
@@ -2588,6 +2628,10 @@ def main():
                        curr = df.loc[mask_fail, tfc].fillna("").astype(str)
                        df.loc[mask_fail, tfc] = np.where(curr == "", dep['set_flag'], curr + ", " + dep['set_flag'])
 
+                # 9.5 Normalize all flag strings
+                # Prevent duplicates like "C, Z, Z" when multiple logic layers add same token.
+                _dedupe_all_flag_columns(df)
+
                 # 10. SF (Snow Free period) — months 6,7,8,9 only
                 # Any positive snow depth reading in this period is suspicious.
                 if 'DBTCDT_Avg' in df.columns and 'TIMESTAMP' in df.columns:
@@ -2643,6 +2687,8 @@ def main():
                         # Reorder Columns (Interleave)
                         # Reorder Columns (Interleave)
                         ordered_cols = ['TIMESTAMP']
+                        if 'UTC Offset' in df_qc.columns:
+                            ordered_cols.append('UTC Offset')
                         
                         # Handle RECORD and RECORD_Flag
                         if 'RECORD' in df_qc.columns:
@@ -2655,7 +2701,7 @@ def main():
                         meta_cols = ['Data_ID', 'Station_ID', 'Logger_ID', 'Logger_Script', 'Logger_Software']
 
                         # Identify data columns (everything else)
-                        reserved = set(['TIMESTAMP', 'RECORD', 'RECORD_Flag']) | set(meta_cols) | set([c for c in df_qc.columns if c.endswith("_Flag")])
+                        reserved = set(['TIMESTAMP', 'UTC Offset', 'RECORD', 'RECORD_Flag']) | set(meta_cols) | set([c for c in df_qc.columns if c.endswith("_Flag")])
                         data_cols = [c for c in df_qc.columns if c not in reserved]
                         
                         for col in data_cols:
