@@ -2212,6 +2212,16 @@ def main():
                     for fc in [c for c in df.columns if c.endswith("_Flag")]:
                         df[fc] = df[fc].apply(_normalize_flag_cell)
 
+                def _resolve_dep_col(df, col_name):
+                    """
+                    Resolve a dependency column name to an existing DataFrame column,
+                    checking known threshold/dependency aliases (e.g., MaxWS_ms <-> MaxWS_ms_Avg).
+                    """
+                    for candidate in threshold_key_variants(col_name):
+                        if candidate in df.columns:
+                            return candidate
+                    return None
+
                 # Helper: extract thresholds dict from an instrument-group entry
                 def _get_grp_thresholds(grp_data):
                     if isinstance(grp_data, dict) and "thresholds" in grp_data:
@@ -2391,72 +2401,60 @@ def main():
                 if 'DBTCDT_Avg' in df.columns:
                      vals = pd.to_numeric(df['DBTCDT_Avg'], errors='coerce')
                      flag_col = 'DBTCDT_Avg_Flag'
-                     
-                     # Build time-varying limit for T > H-50
-                     # Default sensor height
+
+                     # Build time-varying limit for T > H-50.
+                     # Start with a default, then override only from groups that
+                     # explicitly define DBTCDT_Avg thresholds (e.g., SR50).
                      default_sensor_height = 160
                      limit_series = pd.Series(default_sensor_height - 50, index=df.index)
-                     
-                     # Apply deployment-specific sensor heights
+
                      for dep in current_deps:
                          grp_data = instr_groups.get(dep['group'], {})
-                         # Extract sensor_height from nested structure
-                         if isinstance(grp_data, dict) and "sensor_height" in grp_data:
-                             grp_sensor_height = grp_data.get("sensor_height", 160)
-                         else:
-                             # Legacy format or missing
-                             grp_sensor_height = 160
-                         
+                         grp_thresholds, grp_sensor_height = _get_grp_thresholds(grp_data)
+                         col_spec, _matched_key = get_threshold_spec_for_column(grp_thresholds, 'DBTCDT_Avg')
+                         if col_spec is None:
+                             continue
+
                          try:
                              t_s = pd.to_datetime(dep['start'])
                              t_e = pd.to_datetime(dep['end']) + timedelta(hours=23, minutes=59)
-                             
+
                              mask_time = (df['TIMESTAMP'] >= t_s) & (df['TIMESTAMP'] <= t_e)
                              if mask_time.any():
-                                 # Apply sensor height - 50 for this period
+                                 # Apply sensor height - 50 for this SR50-covered period.
                                  limit_series.loc[mask_time] = grp_sensor_height - 50
                          except Exception as e:
                              st.warning(f"Config Error in DBTCDT_Avg logic ({dep}): {e}")
-                     
+
                      # R > H-50 (hard limit breach — sensor-height-dependent)
                      mask_t = (vals > limit_series)
-                     if mask_t.any():
-                         curr = df.loc[mask_t, flag_col].fillna("").astype(str)
-                         df.loc[mask_t, flag_col] = np.where(curr == "", "R", curr + ", R")
+                     _append_flag(df, flag_col, mask_t, 'R')
 
                      
                 # Wind Logic (NV)
+                # WindDir/MaxWS are valid only when WS_ms_Avg > 0.
                 if 'WS_ms_Avg' in df.columns:
-                    ws = pd.to_numeric(df['WS_ms_Avg'], errors='coerce').fillna(0)
-                    mask_calm = (ws == 0)
-                    if mask_calm.any():
+                    ws = pd.to_numeric(df['WS_ms_Avg'], errors='coerce')
+                    mask_no_wind = ws.notna() & (ws <= 0)
+                    if mask_no_wind.any():
                         # Source flag for dependency propagation:
                         # WS_ms_Avg (NV) -> WindDir/MaxWS_ms (NV)
                         fc = 'WS_ms_Avg_Flag'
                         if fc not in df.columns:
                             df[fc] = ""
-                        curr = df.loc[mask_calm, fc].fillna("").astype(str)
-                        already = curr.str.contains(r'\bNV\b', regex=True)
-                        df.loc[mask_calm, fc] = np.where(
-                            already, curr,
-                            np.where(curr == "", "NV", curr + ", NV")
-                        )
+                        _append_flag(df, fc, mask_no_wind, 'NV')
 
                 # Lightning-distance validity source flag:
-                # Strikes_Tot (NV when no strikes) -> Dist_km_Avg (NV)
+                # Dist_km_Avg is valid only when Strikes_Tot > 0.
+                # Strikes_Tot (NV when <= 0) -> Dist_km_Avg (NV)
                 if 'Strikes_Tot' in df.columns:
                     strikes = pd.to_numeric(df['Strikes_Tot'], errors='coerce')
-                    mask_no_strikes = (strikes == 0)
+                    mask_no_strikes = strikes.notna() & (strikes <= 0)
                     if mask_no_strikes.any():
                         fc = 'Strikes_Tot_Flag'
                         if fc not in df.columns:
                             df[fc] = ""
-                        curr = df.loc[mask_no_strikes, fc].fillna("").astype(str)
-                        already = curr.str.contains(r'\bNV\b', regex=True)
-                        df.loc[mask_no_strikes, fc] = np.where(
-                            already, curr,
-                            np.where(curr == "", "NV", curr + ", NV")
-                        )
+                        _append_flag(df, fc, mask_no_strikes, 'NV')
 
                 # Note: Tilt columns (TiltNS_deg_Avg, TiltWE_deg_Avg) are handled entirely by:
                 #   1. The main threshold loop above (applies C for >|3°|, R for >|90°|)
@@ -2612,14 +2610,15 @@ def main():
 
                 # 9. Dependencies — propagate flags from source to target columns
                 for dep in DEPENDENCY_CONFIG:
-                   target = dep['target']
-                   if target not in df.columns: continue
+                   target = _resolve_dep_col(df, dep['target'])
+                   if not target: continue
                    tfc = f"{target}_Flag"
 
                    mask_fail = pd.Series(False, index=df.index)
                    for src in dep['sources']:
-                       if src not in df.columns: continue
-                       sfc = f"{src}_Flag"
+                       src_col = _resolve_dep_col(df, src)
+                       if not src_col: continue
+                       sfc = f"{src_col}_Flag"
                        curr_s = df[sfc].fillna("").astype(str)
                        pat = "|".join([rf"\b{f}\b" for f in dep['trigger_flags']])
                        mask_fail = mask_fail | curr_s.str.contains(pat, regex=True)
