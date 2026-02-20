@@ -294,10 +294,48 @@ COLUMN_ALIASES = {
     'gtmp_Avg': 'Gtmp_Avg',
 }
 
+# Threshold-key equivalence for cases where the same variable appears under
+# alternate names across files/configs (without renaming raw data columns).
+THRESHOLD_KEY_EQUIVALENTS = {
+    'MaxWS_ms_Avg': ['MaxWS_ms'],
+    'MaxWS_ms': ['MaxWS_ms_Avg'],
+}
+
 # --- Helper Functions ---
 
 def canonicalize_column_name(name):
     return COLUMN_ALIASES.get(name, name)
+
+def threshold_key_variants(col_name):
+    """
+    Returns equivalent threshold keys to try for a column name.
+    """
+    variants = []
+    for key in [col_name, canonicalize_column_name(col_name)]:
+        if key not in variants:
+            variants.append(key)
+
+    # Expand with explicit threshold-equivalent names.
+    i = 0
+    while i < len(variants):
+        key = variants[i]
+        for alt in THRESHOLD_KEY_EQUIVALENTS.get(key, []):
+            if alt not in variants:
+                variants.append(alt)
+        i += 1
+    return variants
+
+def get_threshold_spec_for_column(thresholds, col_name):
+    """
+    Fetches threshold spec for a column, checking equivalent key variants.
+    Returns (spec, matched_key) or (None, None).
+    """
+    if not isinstance(thresholds, dict):
+        return None, None
+    for key in threshold_key_variants(col_name):
+        if key in thresholds:
+            return thresholds[key], key
+    return None, None
 
 def normalize_df_column_aliases(df):
     """
@@ -1969,27 +2007,43 @@ def main():
                     )
                 check_dt_str = f"{check_date} {check_time_str}:00"
 
-                # Logic to find active group
-                active_grp_name = "None (Using Defaults)"
-                active_grp_thresholds = {}
-                active_sensor_height = 160  # Default
+                # Logic to find active deployments/groups at the selected timestamp
+                check_dt = pd.to_datetime(check_dt_str)
 
-                # Check overlapping configs using full datetime comparison
+                def _extract_group_payload(group_name):
+                    grp_data = groups.get(group_name, {})
+                    if isinstance(grp_data, dict) and "thresholds" in grp_data:
+                        return grp_data.get("thresholds", {}), grp_data.get("sensor_height", 160)
+                    if isinstance(grp_data, dict):
+                        return grp_data, 160
+                    return {}, 160
+
+                active_deps = []
                 for cfg in st_cfg:
-                    if cfg['start'] <= check_dt_str <= cfg['end']:
-                        active_grp_name = cfg['group']
-                        grp_data = groups.get(active_grp_name, {})
-                        # Handle new nested structure
-                        if isinstance(grp_data, dict) and "thresholds" in grp_data:
-                            active_grp_thresholds = grp_data["thresholds"]
-                            active_sensor_height = grp_data.get("sensor_height", 160)
-                        else:
-                            # Legacy format
-                            active_grp_thresholds = grp_data
-                        break
-                
-                st.write(f"**Active Group:** {active_grp_name}")
-                st.write(f"**Sensor Height:** {active_sensor_height} cm")
+                    try:
+                        cfg_start = pd.to_datetime(cfg.get('start'))
+                        cfg_end = pd.to_datetime(cfg.get('end'))
+                    except Exception:
+                        continue
+                    if cfg_start <= check_dt <= cfg_end:
+                        active_deps.append(cfg)
+
+                active_group_names = []
+                for dep in active_deps:
+                    g_name = dep.get('group')
+                    if g_name and g_name not in active_group_names:
+                        active_group_names.append(g_name)
+
+                if active_group_names:
+                    st.write(f"**Active Groups:** {', '.join(active_group_names)}")
+                    height_labels = []
+                    for g_name in active_group_names:
+                        _, g_height = _extract_group_payload(g_name)
+                        height_labels.append(f"{g_name}: {g_height} cm")
+                    st.write(f"**Sensor Heights by Group:** {' | '.join(height_labels)}")
+                else:
+                    st.write("**Active Groups:** None (Using Defaults)")
+                    st.write("**Sensor Height:** 160 cm (default)")
                 
                 # Build Comparison Table — show R and C limits side by side
                 preview_data = []
@@ -2000,9 +2054,18 @@ def main():
                     def_c_min = v.get('c_min', '')
                     def_c_max = v.get('c_max', '')
                     
-                    # Override from active instrument group
-                    if k in active_grp_thresholds:
-                        grp_spec = active_grp_thresholds[k]
+                    # Override from all active instrument groups (last matching deployment wins)
+                    act_r_min, act_r_max = def_r_min, def_r_max
+                    act_c_min, act_c_max = def_c_min, def_c_max
+                    source = "Default"
+                    source_group = ""
+
+                    for dep in active_deps:
+                        dep_group = dep.get('group')
+                        grp_thresholds, _ = _extract_group_payload(dep_group)
+                        grp_spec, _matched_key = get_threshold_spec_for_column(grp_thresholds, k)
+                        if grp_spec is None:
+                            continue
                         if isinstance(grp_spec, dict):
                             act_r_min = grp_spec.get('r_min', def_r_min)
                             act_r_max = grp_spec.get('r_max', def_r_max)
@@ -2011,22 +2074,17 @@ def main():
                         elif isinstance(grp_spec, (list, tuple)) and len(grp_spec) >= 2:
                             act_r_min, act_r_max = grp_spec[0], grp_spec[1]
                             act_c_min, act_c_max = def_c_min, def_c_max
-                        else:
-                            act_r_min, act_r_max = def_r_min, def_r_max
-                            act_c_min, act_c_max = def_c_min, def_c_max
                         source = "Instrument Group"
-                    else:
-                        act_r_min, act_r_max = def_r_min, def_r_max
-                        act_c_min, act_c_max = def_c_min, def_c_max
-                        source = "Default"
+                        source_group = dep_group
                     
                     # Format None as '—'
-                    fmt = lambda x: '—' if x is None or x == '' else str(x)
+                    fmt = lambda x: '—' if x is None or x == '' or (isinstance(x, float) and np.isnan(x)) else str(x)
                     preview_data.append({
                         "Column": k,
                         "R Min": fmt(act_r_min), "R Max": fmt(act_r_max),
                         "C Min": fmt(act_c_min), "C Max": fmt(act_c_max),
-                        "Source": source
+                        "Source": source,
+                        "Group": source_group if source_group else "—"
                     })
                 
                 st.dataframe(pd.DataFrame(preview_data), use_container_width=True)
@@ -2126,7 +2184,10 @@ def main():
                     # If column not in SENSOR_THRESHOLDS, check if any deployment group covers it
                     if base_spec is None:
                         has_dep_coverage = any(
-                            col in _get_grp_thresholds(instr_groups.get(d['group'], {}))[0]
+                            get_threshold_spec_for_column(
+                                _get_grp_thresholds(instr_groups.get(d['group'], {}))[0],
+                                col
+                            )[0] is not None
                             for d in current_deps
                         )
                         if not has_dep_coverage:
@@ -2154,7 +2215,10 @@ def main():
                     # Check if any deployment overrides this column
                     relevant_deps = [
                         d for d in current_deps
-                        if col in _get_grp_thresholds(instr_groups.get(d['group'], {}))[0]
+                        if get_threshold_spec_for_column(
+                            _get_grp_thresholds(instr_groups.get(d['group'], {}))[0],
+                            col
+                        )[0] is not None
                     ]
 
                     if not relevant_deps:
@@ -2212,7 +2276,8 @@ def main():
                             grp_data = instr_groups.get(dep['group'], {})
                             grp_thresholds, grp_sensor_height = _get_grp_thresholds(grp_data)
 
-                            if col not in grp_thresholds:
+                            col_spec, _matched_key = get_threshold_spec_for_column(grp_thresholds, col)
+                            if col_spec is None:
                                 continue
                             try:
                                 t_s = pd.to_datetime(dep['start'])
@@ -2220,8 +2285,6 @@ def main():
                                 mask_time = (df['TIMESTAMP'] >= t_s) & (df['TIMESTAMP'] <= t_e)
                                 if not mask_time.any():
                                     continue
-
-                                col_spec = grp_thresholds[col]
 
                                 # Handle both dict {r_min, r_max, c_min, c_max} and legacy [min, max]
                                 if isinstance(col_spec, dict):

@@ -101,7 +101,7 @@
         }
     },
     "SR50": {
-        "sensor_height": 200,
+        "sensor_height": 160,
         "thresholds": {
             "DT_Avg": {
                 "r_min": 50.0,
