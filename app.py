@@ -152,7 +152,7 @@ INITIAL_INSTRUMENT_GROUPS = {
     },
     'System': {
         'thresholds': {
-            'BattV_Avg':   {'r_min': -9.6, 'r_max': 19, 'c_min': 10,   'c_max': 16},
+            'BattV_Avg':   {'r_min': 9.6, 'r_max': 19, 'c_min': 10,   'c_max': 16},
             'PTemp_C_Avg': {'r_min': -40,  'r_max': 70, 'c_min': None, 'c_max': None},
             'Ptmp_C_Avg':  {'r_min': -40,  'r_max': 70, 'c_min': None, 'c_max': None},
         },
@@ -1751,18 +1751,18 @@ def main():
                         grp_name = new_grp_name if new_grp_name else None
                         current_cols = []
                         current_thresholds = {}
-                        current_sensor_height = 166
+                        current_sensor_height = 160
                     else:
                         grp_name = selected_group
                         current_data = groups[selected_group]
                         # Handle both old and new format
                         if isinstance(current_data, dict) and "thresholds" in current_data:
                             current_thresholds = current_data["thresholds"]
-                            current_sensor_height = current_data.get("sensor_height", 166)
+                            current_sensor_height = current_data.get("sensor_height", 160)
                         else:
                             # Legacy format: dict is just thresholds
                             current_thresholds = current_data
-                            current_sensor_height = 166
+                            current_sensor_height = 160
                         current_cols = list(current_thresholds.keys())
 
                 with col_grp2:
@@ -1972,7 +1972,7 @@ def main():
                 # Logic to find active group
                 active_grp_name = "None (Using Defaults)"
                 active_grp_thresholds = {}
-                active_sensor_height = 166  # Default
+                active_sensor_height = 160  # Default
 
                 # Check overlapping configs using full datetime comparison
                 for cfg in st_cfg:
@@ -1982,7 +1982,7 @@ def main():
                         # Handle new nested structure
                         if isinstance(grp_data, dict) and "thresholds" in grp_data:
                             active_grp_thresholds = grp_data["thresholds"]
-                            active_sensor_height = grp_data.get("sensor_height", 166)
+                            active_sensor_height = grp_data.get("sensor_height", 160)
                         else:
                             # Legacy format
                             active_grp_thresholds = grp_data
@@ -2108,8 +2108,8 @@ def main():
                 # Helper: extract thresholds dict from an instrument-group entry
                 def _get_grp_thresholds(grp_data):
                     if isinstance(grp_data, dict) and "thresholds" in grp_data:
-                        return grp_data["thresholds"], grp_data.get("sensor_height", 166)
-                    return grp_data, 166
+                        return grp_data["thresholds"], grp_data.get("sensor_height", 160)
+                    return grp_data, 160
 
                 # Identify columns to QC
                 qc_cols = [
@@ -2149,7 +2149,7 @@ def main():
 
                     # --- Build time-varying limit Series for R tier ---
                     # Default sensor height (overridden per deployment below)
-                    default_sensor_height = 166
+                    default_sensor_height = 160
 
                     # Check if any deployment overrides this column
                     relevant_deps = [
@@ -2282,7 +2282,7 @@ def main():
                      
                      # Build time-varying limit for T > H-50
                      # Default sensor height
-                     default_sensor_height = 166
+                     default_sensor_height = 160
                      limit_series = pd.Series(default_sensor_height - 50, index=df.index)
                      
                      # Apply deployment-specific sensor heights
@@ -2290,10 +2290,10 @@ def main():
                          grp_data = instr_groups.get(dep['group'], {})
                          # Extract sensor_height from nested structure
                          if isinstance(grp_data, dict) and "sensor_height" in grp_data:
-                             grp_sensor_height = grp_data.get("sensor_height", 166)
+                             grp_sensor_height = grp_data.get("sensor_height", 160)
                          else:
                              # Legacy format or missing
-                             grp_sensor_height = 166
+                             grp_sensor_height = 160
                          
                          try:
                              t_s = pd.to_datetime(dep['start'])
