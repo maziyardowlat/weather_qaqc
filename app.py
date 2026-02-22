@@ -220,9 +220,14 @@ DEPENDENCY_CONFIG = [
     {'target': 'SlrTF_MJ_Tot', 'sources': ['SlrFD_W_Avg'],                      'trigger_flags': ['Z'], 'set_flag': 'Z'},
 
     # ClimaVUE50 — wind direction and gust invalid when wind speed == 0 (NV flag applied in pipeline)
+    # WindDir/MaxWS also receive DF when WS has hard/error dependency failure.
+    {'target': 'WindDir',      'sources': ['WS_ms_Avg'],                         'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
+    {'target': 'MaxWS_ms',     'sources': ['WS_ms_Avg'],                         'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
     {'target': 'WindDir',      'sources': ['WS_ms_Avg'],                         'trigger_flags': ['NV'], 'set_flag': 'NV'},
     {'target': 'MaxWS_ms',     'sources': ['WS_ms_Avg'],                         'trigger_flags': ['NV'], 'set_flag': 'NV'},
 
+    # ClimaVUE50 — Dist_km also receives DF when Strikes is R/E/DF.
+    {'target': 'Dist_km_Avg',  'sources': ['Strikes_Tot'],                       'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
     # ClimaVUE50 — lightning distance NV is applied directly in pipeline
     # when Strikes_Tot <= 0 (per notes: Dist valid only if strikes > 0).
 
@@ -231,6 +236,8 @@ DEPENDENCY_CONFIG = [
     # -----------------------------------------------------------------------
     # DT affects TCDT (DF if DT is R or E)
     {'target': 'TCDT_Avg',     'sources': ['DT_Avg'],                            'trigger_flags': ['R', 'E'], 'set_flag': 'DF'},
+    # Q depends on DT (Flags_Depend includes DF)
+    {'target': 'Q_Avg',        'sources': ['DT_Avg'],                            'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
     # Q (quality) affects TCDT — DC if Q is C (uncertain echo)
     {'target': 'TCDT_Avg',     'sources': ['Q_Avg'],                             'trigger_flags': ['C'], 'set_flag': 'DC'},
     # AirT affects TCDT (temperature correction) — DC if AirT is DC
@@ -268,10 +275,10 @@ DEPENDENCY_CONFIG = [
     {'target': 'SWalbedo_Avg', 'sources': ['SWin_Avg'],                          'trigger_flags': ['Z'], 'set_flag': 'Z'},
     # DZ is applied programmatically in the pipeline (SWin < 20 W/m²), not via dependency propagation
 
-    # NR_Avg depends on SWnet/LWnet plus incoming/outgoing longwave components
+    # NR_Avg depends on SWnet/LWnet for DF, and uses SWin/SWout/LWin/LWout for DC.
     {'target': 'NR_Avg',       'sources': ['SWnet_Avg', 'LWnet_Avg', 'LWin_Avg', 'LWout_Avg'], 'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
-    # NR gets DC if any dependency is C
-    {'target': 'NR_Avg',       'sources': ['SWnet_Avg', 'LWnet_Avg', 'LWin_Avg', 'LWout_Avg'], 'trigger_flags': ['C'], 'set_flag': 'DC'},
+    # NR gets DC if SWin/SWout/LWin/LWout has C (per RefSensorThresholds Notes)
+    {'target': 'NR_Avg',       'sources': ['SWin_Avg', 'SWout_Avg', 'LWin_Avg', 'LWout_Avg'], 'trigger_flags': ['C'], 'set_flag': 'DC'},
 ]
 
 # Solar columns that get the nighttime Z-flag check
@@ -292,6 +299,7 @@ ADD_CAUTION_FLAG = [
 COLUMN_ALIASES = {
     'stmp_Avg': 'Stmp_Avg',
     'gtmp_Avg': 'Gtmp_Avg',
+    'RHT_Avg': 'RHT_C_Avg',
 }
 
 # Threshold-key equivalence for cases where the same variable appears under
@@ -299,6 +307,8 @@ COLUMN_ALIASES = {
 THRESHOLD_KEY_EQUIVALENTS = {
     'MaxWS_ms_Avg': ['MaxWS_ms'],
     'MaxWS_ms': ['MaxWS_ms_Avg'],
+    'RHT_C_Avg': ['RHT_Avg'],
+    'RHT_Avg': ['RHT_C_Avg'],
 }
 
 # --- Helper Functions ---
@@ -2528,7 +2538,6 @@ def main():
                     ('BattV_Avg', 'R', 'BV'),
                     ('PTemp_C_Avg', 'R', 'PT'),
                     ('Ptmp_C_Avg', 'R', 'PT'),
-                    ('RECORD', 'LR', 'LR'),
                 ]
                 for src_col, trigger_flag, prop_flag in system_propagations:
                     src_fc = f"{src_col}_Flag"
@@ -2571,6 +2580,9 @@ def main():
                         df[flag_col] = ""
                     raw_vals = pd.to_numeric(df[col], errors='coerce')
                     mask_err_val = raw_vals.isin(ERROR_VALUES)
+                    # Per RefSensorThresholds notes for DT: "E if 0 (no echo detected)"
+                    if col == 'DT_Avg':
+                        mask_err_val = mask_err_val | raw_vals.eq(0)
                     if mask_err_val.any():
                         curr = df.loc[mask_err_val, flag_col].fillna("").astype(str)
                         already = curr.str.contains(r'\bE\b', regex=True)
@@ -2591,6 +2603,19 @@ def main():
                          if fc not in df.columns: df[fc] = ""
                          curr = df.loc[mask_restart, fc].fillna("").astype(str)
                          df.loc[mask_restart, fc] = np.where(curr == "", "LR", curr + ", LR")
+
+                # 7.5 LR dependency propagation
+                # LR is derived from RECORD sequence resets, then propagated to all other flags.
+                if "RECORD_Flag" in df.columns:
+                    mask_lr = df["RECORD_Flag"].fillna("").astype(str).str.contains(r'\bLR\b', regex=True)
+                    if mask_lr.any():
+                        for fc in [c for c in df.columns if c.endswith("_Flag") and c != "RECORD_Flag"]:
+                            curr = df.loc[mask_lr, fc].fillna("").astype(str)
+                            already = curr.str.contains(r'\bLR\b', regex=True)
+                            df.loc[mask_lr, fc] = np.where(
+                                already, curr,
+                                np.where(curr == "", "LR", curr + ", LR")
+                            )
 
                 # 8. DZ (Divide by Zero) — albedo when SWin < 20 W/m²
                 # Per Notes: "Flag DZ if SWin_Avg < 20" (too dark to compute meaningful albedo)
