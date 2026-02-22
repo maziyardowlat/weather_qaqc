@@ -8,12 +8,6 @@
                 "c_min": null,
                 "c_max": null
             },
-            "RHT_Avg": {
-                "r_min": -40.0,
-                "r_max": 60.0,
-                "c_min": null,
-                "c_max": null
-            },
             "RHT_C_Avg": {
                 "r_min": -40.0,
                 "r_max": 60.0,

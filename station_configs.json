@@ -86,5 +86,10 @@
                 "group": "System"
             }
         ]
+    },
+    "02FW": {
+        "latitude": 53.7217,
+        "longitude": -125.6417,
+        "deployments": []
     }
 }
