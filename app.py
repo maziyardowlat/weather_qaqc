@@ -1287,7 +1287,6 @@ def main():
                     auto_field_out     = ""  # pre-fill for Field Out text input
 
                     if "metalog_raw" in st.session_state:
-                        import io
                         # Quick read of just the TIMESTAMP column to validate visit windows
                         # against this specific file's date range.
                         try:
@@ -3050,6 +3049,79 @@ def main():
                                 base_name = os.path.splitext(selected_qc_file_save)[0]
                                 run_stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                                 freq_map_save = {"Daily": "D", "Weekly": "W", "Monthly": "M"}
+
+                                # Fresh percentage summary for this exact Save run.
+                                flag_counts_save = (
+                                    filtered_save['flag']
+                                    .value_counts()
+                                    .rename_axis("Flag")
+                                    .reset_index(name="Count")
+                                )
+                                total_rows_for_pct_save = max(1, len(df_save))
+                                total_occ_for_pct_save = max(1, len(filtered_save))
+                                rows_with_flag_save = (
+                                    filtered_save.groupby('flag')['row_idx']
+                                    .nunique()
+                                    .rename("Rows_With_Flag")
+                                    .reset_index()
+                                    .rename(columns={"flag": "Flag"})
+                                )
+                                flag_counts_save = flag_counts_save.merge(rows_with_flag_save, on="Flag", how="left")
+                                flag_counts_save["Rows_With_Flag"] = flag_counts_save["Rows_With_Flag"].fillna(0).astype(int)
+                                flag_counts_save["Pct_of_Total_Rows"] = (
+                                    (flag_counts_save["Rows_With_Flag"] / total_rows_for_pct_save) * 100.0
+                                ).round(2)
+                                flag_counts_save["Pct_of_Selected_Flag_Occurrences"] = (
+                                    (flag_counts_save["Count"] / total_occ_for_pct_save) * 100.0
+                                ).round(2)
+
+                                st.subheader("Flag Percentages (This Save Run)")
+                                st.dataframe(flag_counts_save, use_container_width=True, hide_index=True)
+
+                                pct_csv_path = os.path.join(
+                                    save_dir,
+                                    f"{base_name}_flag_percentages_{run_stamp}.csv"
+                                )
+                                pct_xlsx_path = os.path.join(
+                                    save_dir,
+                                    f"{base_name}_flag_percentages_{run_stamp}.xlsx"
+                                )
+                                pct_png_path = os.path.join(
+                                    save_dir,
+                                    f"{base_name}_flag_percentages_{run_stamp}.png"
+                                )
+
+                                flag_counts_save.to_csv(pct_csv_path, index=False)
+                                with pd.ExcelWriter(pct_xlsx_path, engine="openpyxl") as writer:
+                                    flag_counts_save.to_excel(writer, sheet_name="Flag Percentages", index=False)
+
+                                pct_plot_df = flag_counts_save.sort_values("Pct_of_Total_Rows", ascending=False)
+                                fig, ax = plt.subplots(figsize=(10, 4.8))
+                                ax.bar(pct_plot_df["Flag"], pct_plot_df["Pct_of_Total_Rows"])
+                                ax.set_ylabel("% of Total Rows")
+                                ax.set_xlabel("Flag")
+                                ax.set_title("Flag Frequency (% of Total Rows)")
+                                fig.tight_layout()
+
+                                pct_png_buffer = io.BytesIO()
+                                fig.savefig(pct_png_buffer, format="png", dpi=180)
+                                pct_png_buffer.seek(0)
+                                pct_png_bytes = pct_png_buffer.getvalue()
+                                plt.close(fig)
+
+                                with open(pct_png_path, "wb") as f:
+                                    f.write(pct_png_bytes)
+
+                                st.image(pct_png_bytes, caption="Flag percentages (% of total rows)", use_container_width=True)
+                                st.download_button(
+                                    label="Download Flag Percentage Chart (PNG)",
+                                    data=pct_png_bytes,
+                                    file_name=os.path.basename(pct_png_path),
+                                    mime="image/png",
+                                    key=f"download_pct_png_{run_stamp}"
+                                )
+
+                                created_paths.extend([pct_csv_path, pct_xlsx_path, pct_png_path])
 
                                 for freq_label in freq_save:
                                     total_t, by_flag_t = compute_flag_trend_tables(
