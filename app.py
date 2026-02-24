@@ -259,9 +259,7 @@ DEPENDENCY_CONFIG = [
     {'target': 'SWnet_Avg',    'sources': ['SWin_Avg', 'SWout_Avg'],             'trigger_flags': ['C'], 'set_flag': 'DC'},
     # SWnet inherits Z from SWin
     {'target': 'SWnet_Avg',    'sources': ['SWin_Avg'],                          'trigger_flags': ['Z'], 'set_flag': 'Z'},
-    # SWout inherits Z from SWin
-    {'target': 'SWout_Avg',    'sources': ['SWin_Avg'],                          'trigger_flags': ['Z'], 'set_flag': 'Z'},
-
+    # SWout Z is applied directly by nighttime sign checks.
     # LWin/LWout affect LWnet — DF if R or E
     {'target': 'LWnet_Avg',    'sources': ['LWin_Avg', 'LWout_Avg'],             'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
     # LWnet gets DC if LWin or LWout is C (per Notes: "flag DC if LWin_Avg OR LWout_Avg == C")
@@ -283,17 +281,6 @@ DEPENDENCY_CONFIG = [
 
 # Solar columns that get the nighttime Z-flag check
 SOLAR_COLUMNS = ['SlrFD_W_Avg', 'SWin_Avg', 'SWout_Avg']
-
-# Columns that receive the manual 'C' (caution) flag when the user ticks
-# "Add Caution Flag" in the ingestion UI — covers all sensor data columns.
-ADD_CAUTION_FLAG = [
-    'BattV_Avg', 'PTemp_C_Avg', 'Ptmp_C_Avg', 'SlrFD_W_Avg', 'Dist_km_Avg',
-    'WS_ms_Avg', 'MaxWS_ms', 'MaxWS_ms_Avg', 'AirT_C_Avg', 'VP_hPa_Avg',
-    'BP_hPa_Avg', 'RHT_C_Avg', 'RHT_Avg', 'TiltNS_deg_Avg', 'TiltWE_deg_Avg',
-    'DT_Avg', 'Q_Avg', 'TCDT_Avg', 'DBTCDT_Avg',
-    'SWin_Avg', 'SWout_Avg', 'LWin_Avg', 'LWout_Avg', 'SWnet_Avg',
-    'LWnet_Avg', 'SWalbedo_Avg', 'NR_Avg','Stmp_Avg', 'Gtmp_Avg',
-]
 
 # Canonical sensor column names with accepted alias spellings.
 COLUMN_ALIASES = {
@@ -1436,8 +1423,13 @@ def main():
                             logger_script = _selected_script
                         logger_soft = st.text_input(f"Logger Software", value=meta['logger_software'], key=f"lsw_{i}")
 
-                    # Caution Flag Option
-                    add_caution = st.checkbox(f"Add Caution Flag (C) to all data columns", key=f"caution_{i}")
+                    # Caution Flag Option (per-file and column-selectable)
+                    add_caution = st.checkbox(
+                        f"Add Caution Flag (C) for this dataset",
+                        key=f"caution_{i}",
+                        help="When enabled, choose which mapped parameters should receive C."
+                    )
+                    selected_caution_columns = []
 
                     # ------------------------------------------------------------------
                     # Field Visit Windows (V flag)
@@ -1538,6 +1530,31 @@ def main():
                             else:
                                 final_mapping[row['Source']] = "REMOVE"
                     
+                    # Optional per-file caution-column selection (after mapping is known)
+                    if add_caution:
+                        mapped_targets = sorted({
+                            canonicalize_column_name(str(v).strip())
+                            for v in final_mapping.values()
+                            if v not in [None, "", "REMOVE"]
+                            and str(v).strip() not in [
+                                'TIMESTAMP', 'UTC Offset', 'RECORD',
+                                'Data_ID', 'Station_ID', 'Logger_ID',
+                                'Logger_Script', 'Logger_Software'
+                            ]
+                            and not str(v).strip().endswith('_Flag')
+                        })
+                        caution_options = mapped_targets
+                        if caution_options:
+                            selected_caution_columns = st.multiselect(
+                                "Select parameters to receive C for this dataset",
+                                options=caution_options,
+                                default=caution_options,
+                                key=f"caution_cols_{i}",
+                                help="Only selected parameters receive the manual C flag for this file."
+                            )
+                        else:
+                            st.info("No mapped data parameters available for caution selection in this dataset.")
+
                     # Save Config
                     # Build the combined list of visit windows:
                     #   - auto_visit_windows: from MetadataLog (already validated against file range)
@@ -1557,6 +1574,7 @@ def main():
                         "visit_windows": combined_visit_windows,  # list of (in, out) tuples
                         "mapping": final_mapping,
                         "add_caution": add_caution,
+                        "caution_columns": selected_caution_columns,
                         "skip_rows": skip_rows,  # user-configured row skip list
                     })
 
@@ -1585,7 +1603,20 @@ def main():
                             
                             # Apply Manual Caution Flag if selected
                             if cfg.get('add_caution', False):
-                                for col in ADD_CAUTION_FLAG:
+                                caution_cols = cfg.get('caution_columns')
+                                if caution_cols is None:
+                                    caution_cols = sorted({
+                                        canonicalize_column_name(str(v).strip())
+                                        for v in cfg.get('mapping', {}).values()
+                                        if v not in [None, "", "REMOVE"]
+                                        and str(v).strip() not in [
+                                            'TIMESTAMP', 'UTC Offset', 'RECORD',
+                                            'Data_ID', 'Station_ID', 'Logger_ID',
+                                            'Logger_Script', 'Logger_Software'
+                                        ]
+                                        and not str(v).strip().endswith('_Flag')
+                                    })
+                                for col in caution_cols:
                                     if col in df.columns:
                                         flag_col = f"{col}_Flag"
                                         if flag_col not in df.columns:
@@ -1677,15 +1708,16 @@ def main():
                                 mask_err = is_inf | (was_present & became_nan)
                                 
                                 if mask_err.any():
-                                    df_final.loc[mask_err, flag_col] = "ERR"
+                                    df_final.loc[mask_err, flag_col] = "E"
                                     numeric[mask_err] = np.nan
                                     
                                 df_final[col] = numeric
                                 
                                 # M Logic (Missing)
                                 mask_missing = df_final[col].isna()
-                                # If missing and NOT ERR -> M
-                                mask_m = mask_missing & (df_final[flag_col] != "ERR")
+                                # If missing and NOT E -> M
+                                has_e = df_final[flag_col].fillna("").astype(str).str.contains(r'\bE\b', regex=True)
+                                mask_m = mask_missing & ~has_e
                                 df_final.loc[mask_m, flag_col] = "M"
                                 
                                 # V Logic (Field Visits)
@@ -1708,15 +1740,37 @@ def main():
 
                                         # Append V flag (avoid duplicates)
                                         current_flags = df_final.loc[mask_visit, flag_col].fillna("").astype(str)
+                                        # If E is present, keep E-only semantics (do not append V).
                                         new_flags = np.where(
-                                            current_flags.str.contains(r'\bV\b', regex=True),
-                                            current_flags,  # already has V, leave it
+                                            current_flags.str.contains(r'\bE\b|\bV\b', regex=True),
+                                            current_flags,
                                             np.where(current_flags == "", "V", current_flags + ", V")
                                         )
                                         df_final.loc[mask_visit, flag_col] = new_flags
 
                                     except Exception as e:
                                         st.warning(f"Invalid Field Visit Time: {f_in} – {f_out}: {e}")
+
+                            # RECORD missingness should also be marked M.
+                            if 'RECORD' in df_final.columns:
+                                rec_flag_col = 'RECORD_Flag'
+                                if rec_flag_col not in df_final.columns:
+                                    df_final[rec_flag_col] = ""
+                                else:
+                                    df_final[rec_flag_col] = df_final[rec_flag_col].fillna("").astype(str)
+
+                                rec_vals = pd.to_numeric(df_final['RECORD'], errors='coerce')
+                                rec_curr = df_final[rec_flag_col].fillna("").astype(str)
+                                rec_missing = rec_vals.isna()
+                                rec_has_e = rec_curr.str.contains(r'\bE\b', regex=True)
+                                rec_has_m = rec_curr.str.contains(r'\bM\b', regex=True)
+                                rec_apply = rec_missing & ~rec_has_e & ~rec_has_m
+                                if rec_apply.any():
+                                    df_final.loc[rec_apply, rec_flag_col] = np.where(
+                                        rec_curr.loc[rec_apply] == "",
+                                        "M",
+                                        rec_curr.loc[rec_apply] + ", M"
+                                    )
 
 
                             # Reorder Columns
@@ -2172,14 +2226,14 @@ def main():
                             return pd.to_numeric(data_slice[v], errors='coerce')
                     return v
 
-                # Helper: append a flag token to a flag column, skipping rows already flagged M/ERR
+                # Helper: append a flag token to a flag column, skipping rows already flagged M/ERR/E
                 def _append_flag(df, flag_col, mask, token):
-                    """Appends token to flag_col for rows where mask is True, skipping M/ERR rows."""
+                    """Appends token to flag_col for rows where mask is True, skipping M/ERR/E rows."""
                     if not mask.any():
                         return
                     curr = df[flag_col].fillna("").astype(str)
-                    # Don't overwrite M or ERR rows
-                    skip = curr.str.contains(r'\bM\b|\bERR\b', regex=True)
+                    # Don't overwrite M, ERR, or E rows.
+                    skip = curr.str.contains(r'\bM\b|\bERR\b|\bE\b', regex=True)
                     apply_mask = mask & ~skip
                     if not apply_mask.any():
                         return
@@ -2445,7 +2499,7 @@ def main():
                 # WindDir/MaxWS are valid only when WS_ms_Avg > 0.
                 if 'WS_ms_Avg' in df.columns:
                     ws = pd.to_numeric(df['WS_ms_Avg'], errors='coerce')
-                    mask_no_wind = ws.notna() & (ws <= 0)
+                    mask_no_wind = ws.notna() & (ws == 0)
                     if mask_no_wind.any():
                         # Source flag for dependency propagation:
                         # WS_ms_Avg (NV) -> WindDir/MaxWS_ms (NV)
@@ -2456,10 +2510,10 @@ def main():
 
                 # Lightning-distance validity flag:
                 # Dist_km_Avg is valid only when Strikes_Tot > 0.
-                # Apply NV directly to Dist_km_Avg when Strikes_Tot <= 0.
+                # Apply NV directly to Dist_km_Avg when Strikes_Tot == 0.
                 if 'Strikes_Tot' in df.columns and 'Dist_km_Avg' in df.columns:
                     strikes = pd.to_numeric(df['Strikes_Tot'], errors='coerce')
-                    mask_no_strikes = strikes.notna() & (strikes <= 0)
+                    mask_no_strikes = strikes.notna() & (strikes == 0)
                     if mask_no_strikes.any():
                         fc = 'Dist_km_Avg_Flag'
                         if fc not in df.columns:
@@ -2523,12 +2577,11 @@ def main():
                                     if mask_z.any():
                                         idx = vals[mask_z].index
                                         fc = f"{scol}_Flag"
-                                        curr = df.loc[idx, fc].fillna("").astype(str)
-                                        already = curr.str.contains(r'\bZ\b', regex=True)
-                                        df.loc[idx, fc] = np.where(
-                                            already, curr,
-                                            np.where(curr == "", "Z", curr + ", Z")
-                                        )
+                                        if fc not in df.columns:
+                                            df[fc] = ""
+                                        mask_z_rows = pd.Series(False, index=df.index)
+                                        mask_z_rows.loc[idx] = True
+                                        _append_flag(df, fc, mask_z_rows, 'Z')
 
                 # 4. System-level propagation: BV (battery voltage R) and PT (panel temp R)
                 # When BattV_Avg or PTemp_C_Avg is flagged R, all other sensor columns
@@ -2551,12 +2604,7 @@ def main():
                     skip_cols = {'TIMESTAMP', 'RECORD', src_col, src_fc}
                     for col in df.columns:
                         if col.endswith('_Flag') and col not in skip_cols:
-                            curr = df.loc[mask_src, col].fillna("").astype(str)
-                            already = curr.str.contains(rf'\b{prop_flag}\b', regex=True)
-                            df.loc[mask_src, col] = np.where(
-                                already, curr,
-                                np.where(curr == "", prop_flag, curr + ", " + prop_flag)
-                            )
+                            _append_flag(df, col, mask_src, prop_flag)
 
                 # 5. Critical Flags (PT — panel temperature flagged R)
                 # If PTemp is flagged R, warn the user (data may be unreliable system-wide)
@@ -2584,13 +2632,28 @@ def main():
                     if col == 'DT_Avg':
                         mask_err_val = mask_err_val | raw_vals.eq(0)
                     if mask_err_val.any():
-                        curr = df.loc[mask_err_val, flag_col].fillna("").astype(str)
-                        already = curr.str.contains(r'\bE\b', regex=True)
-                        df.loc[mask_err_val, flag_col] = np.where(
-                            already, curr,
-                            np.where(curr == "", "E", curr + ", E")
-                        )
+                        # E is exclusive: if present, suppress all other flags in this cell.
+                        df.loc[mask_err_val, flag_col] = "E"
 
+                # 6.5 RECORD missingness guard (M) in QA/QC stage.
+                # Keeps behavior consistent even if the source concatenated file
+                # was produced before ingestion-stage RECORD M logic existed.
+                if "RECORD" in df.columns:
+                    rec_fc = "RECORD_Flag"
+                    if rec_fc not in df.columns:
+                        df[rec_fc] = ""
+                    rec_vals = pd.to_numeric(df["RECORD"], errors='coerce')
+                    rec_curr = df[rec_fc].fillna("").astype(str)
+                    rec_missing = rec_vals.isna()
+                    rec_has_e = rec_curr.str.contains(r'\bE\b', regex=True)
+                    rec_has_m = rec_curr.str.contains(r'\bM\b', regex=True)
+                    rec_apply = rec_missing & ~rec_has_e & ~rec_has_m
+                    if rec_apply.any():
+                        df.loc[rec_apply, rec_fc] = np.where(
+                            rec_curr.loc[rec_apply] == "",
+                            "M",
+                            rec_curr.loc[rec_apply] + ", M"
+                        )
                 # 7. LR (Logger Restart) — RECORD sequence restart
                 # Per FlagLibrary: LR indicates power failure or logger update.
                 if "RECORD" in df.columns:
@@ -2610,12 +2673,7 @@ def main():
                     mask_lr = df["RECORD_Flag"].fillna("").astype(str).str.contains(r'\bLR\b', regex=True)
                     if mask_lr.any():
                         for fc in [c for c in df.columns if c.endswith("_Flag") and c != "RECORD_Flag"]:
-                            curr = df.loc[mask_lr, fc].fillna("").astype(str)
-                            already = curr.str.contains(r'\bLR\b', regex=True)
-                            df.loc[mask_lr, fc] = np.where(
-                                already, curr,
-                                np.where(curr == "", "LR", curr + ", LR")
-                            )
+                            _append_flag(df, fc, mask_lr, "LR")
 
                 # 8. DZ (Divide by Zero) — albedo when SWin < 20 W/m²
                 # Per Notes: "Flag DZ if SWin_Avg < 20" (too dark to compute meaningful albedo)
@@ -2626,12 +2684,7 @@ def main():
                         fc = 'SWalbedo_Avg_Flag'
                         if fc not in df.columns:
                             df[fc] = ""
-                        curr = df.loc[mask_dz, fc].fillna("").astype(str)
-                        already = curr.str.contains(r'\bDZ\b', regex=True)
-                        df.loc[mask_dz, fc] = np.where(
-                            already, curr,
-                            np.where(curr == "", "DZ", curr + ", DZ")
-                        )
+                        _append_flag(df, fc, mask_dz, "DZ")
 
                 # 9. Dependencies — propagate flags from source to target columns
                 for dep in DEPENDENCY_CONFIG:
@@ -2649,30 +2702,26 @@ def main():
                        mask_fail = mask_fail | curr_s.str.contains(pat, regex=True)
 
                    if mask_fail.any():
-                       curr = df.loc[mask_fail, tfc].fillna("").astype(str)
-                       df.loc[mask_fail, tfc] = np.where(curr == "", dep['set_flag'], curr + ", " + dep['set_flag'])
+                       _append_flag(df, tfc, mask_fail, dep['set_flag'])
 
                 # 9.5 Normalize all flag strings
                 # Prevent duplicates like "C, Z, Z" when multiple logic layers add same token.
                 _dedupe_all_flag_columns(df)
 
-                # 10. SF (Snow Free period) — months 6,7,8,9 only
-                # Any positive snow depth reading in this period is suspicious.
-                if 'DBTCDT_Avg' in df.columns and 'TIMESTAMP' in df.columns:
+                # 10. SF (Snow Free period) — apply to SR50 outputs in months 6,7,8,9.
+                if 'TIMESTAMP' in df.columns:
                     months = df['TIMESTAMP'].dt.month
                     snow_free_months = [6, 7, 8, 9]
-                    vals_sd = pd.to_numeric(df['DBTCDT_Avg'], errors='coerce')
-                    mask_sf = months.isin(snow_free_months) & (vals_sd > 0)
-                    if mask_sf.any():
-                        fc = 'DBTCDT_Avg_Flag'
+                    sr50_sf_cols = ['DT_Avg', 'TCDT_Avg', 'DBTCDT_Avg']
+                    for sr_col in sr50_sf_cols:
+                        if sr_col not in df.columns:
+                            continue
+                        fc = f'{sr_col}_Flag'
                         if fc not in df.columns:
                             df[fc] = ""
-                        curr = df.loc[mask_sf, fc].fillna("").astype(str)
-                        already = curr.str.contains(r'\bSF\b', regex=True)
-                        df.loc[mask_sf, fc] = np.where(
-                            already, curr,
-                            np.where(curr == "", "SF", curr + ", SF")
-                        )
+                        vals_sr = pd.to_numeric(df[sr_col], errors='coerce')
+                        mask_sf = months.isin(snow_free_months) & vals_sr.notna()
+                        _append_flag(df, fc, mask_sf, 'SF')
 
                 # 11. Pass Flags (P) — clean data with no flags
                 for col in df.columns:
@@ -2817,6 +2866,23 @@ def main():
                             .rename_axis("Flag")
                             .reset_index(name="Count")
                         )
+                        total_rows_for_pct = max(1, len(df_viz))
+                        total_occ_for_pct = max(1, len(filtered))
+                        rows_with_flag = (
+                            filtered.groupby('flag')['row_idx']
+                            .nunique()
+                            .rename("Rows_With_Flag")
+                            .reset_index()
+                            .rename(columns={"flag": "Flag"})
+                        )
+                        flag_counts = flag_counts.merge(rows_with_flag, on="Flag", how="left")
+                        flag_counts["Rows_With_Flag"] = flag_counts["Rows_With_Flag"].fillna(0).astype(int)
+                        flag_counts["Pct_of_Total_Rows"] = (
+                            (flag_counts["Rows_With_Flag"] / total_rows_for_pct) * 100.0
+                        ).round(2)
+                        flag_counts["Pct_of_Selected_Flag_Occurrences"] = (
+                            (flag_counts["Count"] / total_occ_for_pct) * 100.0
+                        ).round(2)
                         variable_counts = (
                             filtered['variable']
                             .value_counts()
@@ -2827,7 +2893,9 @@ def main():
                         chart_col1, chart_col2 = st.columns(2)
                         with chart_col1:
                             st.subheader("Flag Frequency")
-                            st.bar_chart(flag_counts.set_index("Flag"))
+                            st.bar_chart(flag_counts.set_index("Flag")[["Count"]])
+                            st.subheader("Flag Frequency (% of Total Rows)")
+                            st.bar_chart(flag_counts.set_index("Flag")[["Pct_of_Total_Rows"]])
                             st.dataframe(flag_counts, use_container_width=True, hide_index=True)
 
                         with chart_col2:
