@@ -943,6 +943,39 @@ def build_qc_viz_report_xlsx(summary_df, flag_counts, variable_counts, matrix, t
     output.seek(0)
     return output.getvalue()
 
+FLAG_DISPLAY_NAMES = {
+    'C': 'Caution',
+    'P': 'Pass',
+    'DF': 'Dependency Failure',
+    'DC': 'Dependency Caution',
+    'DZ': 'Divide by Zero',
+    'E': 'Error',
+    'ERR': 'Error',
+    'M': 'Missing',
+    'V': 'Visit',
+    'Z': 'Night time Value',
+    'T': 'Tilt',
+    'SF': 'Snow Free',
+    'R': 'Range',
+    'NV': 'No Value',
+    'BV': 'Battery Voltage',
+    'PT': 'Panel Temperature',
+    'LR': 'Logger Restart',
+}
+
+
+def format_flag_label(flag_code):
+    code = str(flag_code).strip()
+    full_name = FLAG_DISPLAY_NAMES.get(code)
+    return f"{code} - {full_name}" if full_name else code
+
+
+def with_display_flag_columns(by_flag_over_time):
+    if by_flag_over_time is None or by_flag_over_time.empty:
+        return by_flag_over_time
+    return by_flag_over_time.rename(columns={c: format_flag_label(c) for c in by_flag_over_time.columns})
+
+
 def compute_flag_trend_tables(filtered_flags, df_viz, freq_code):
     """
     Builds total and per-flag time trend tables for selected flags.
@@ -985,8 +1018,9 @@ def build_trend_png(total_over_time, by_flag_over_time, title):
     axes[0].grid(alpha=0.3)
 
     if not by_flag_over_time.empty:
-        by_flag_over_time.plot(ax=axes[1], linewidth=1.6)
-        axes[1].legend(title="Flag", loc="upper right", fontsize=8)
+        by_flag_plot = with_display_flag_columns(by_flag_over_time)
+        by_flag_plot.plot(ax=axes[1], linewidth=1.6)
+        axes[1].legend(title="Flag (Code - Meaning)", loc="upper right", fontsize=8)
     axes[1].set_title(f"{title} - By Flag")
     axes[1].set_xlabel("Time")
     axes[1].set_ylabel("Count")
@@ -2942,7 +2976,7 @@ def main():
                             )
                             if not total_over_time.empty:
                                 st.line_chart(total_over_time)
-                                st.area_chart(by_flag_over_time)
+                                st.area_chart(with_display_flag_columns(by_flag_over_time))
                             else:
                                 st.info("No timestamped rows available for trend charts.")
 

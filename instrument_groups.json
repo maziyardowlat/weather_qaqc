@@ -95,7 +95,7 @@
         }
     },
     "SR50": {
-        "sensor_height": 160,
+        "sensor_height": 200,
         "thresholds": {
             "DT_Avg": {
                 "r_min": 50.0,
@@ -117,7 +117,7 @@
             },
             "DBTCDT_Avg": {
                 "r_min": 0.0,
-                "r_max": 110.0,
+                "r_max": 150.0,
                 "c_min": null,
                 "c_max": null
             }
