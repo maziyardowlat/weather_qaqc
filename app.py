@@ -126,13 +126,13 @@ INITIAL_INSTRUMENT_GROUPS = {
         },
     },
     'SR50': {
-        'sensor_height': 160,
+        'sensor_height': 200,
         'thresholds': {
             'DT_Avg':      {'r_min': 50,  'r_max': 1000, 'c_min': None, 'c_max': None},
             'Q_Avg':       {'r_min': 162, 'r_max': 600,  'c_min': None, 'c_max': 210},
             'TCDT_Avg':    {'r_min': 50,  'r_max': 1000, 'c_min': None, 'c_max': None},
-            'DBTCDT_Avg':  {'r_min': 0,   'r_max': 110,  'c_min': None, 'c_max': None},
-            # Note: DBTCDT r_max = sensor_height (160) - 50 = 110
+            'DBTCDT_Avg':  {'r_min': 0,   'r_max': 150,  'c_min': None, 'c_max': None},
+            # Note: DBTCDT r_max = sensor_height (200) - 50 = 150
         },
     },
     'NetRadiometer': {
@@ -188,14 +188,14 @@ DEPENDENCY_CONFIG = [
     # -----------------------------------------------------------------------
     # ClimaVUE50 — tilt affects solar flux, rain, and derived columns
     # -----------------------------------------------------------------------
-    # Tilt R (> |90°|) → solar flux gets DC (sensor knocked over)
+    # Tilt R (> |90°|) → solar flux gets DC (sensor knocked over) 
     {'target': 'SlrFD_W_Avg',  'sources': ['TiltNS_deg_Avg', 'TiltWE_deg_Avg'], 'trigger_flags': ['R'], 'set_flag': 'DC'},
     # Tilt T or C (> |3°| but < |90°|) → solar flux gets T flag (tilt exceeds accuracy)
-    {'target': 'SlrFD_W_Avg',  'sources': ['TiltNS_deg_Avg', 'TiltWE_deg_Avg'], 'trigger_flags': ['T', 'C'], 'set_flag': 'T'},
+    {'target': 'SlrFD_W_Avg',  'sources': ['TiltNS_deg_Avg', 'TiltWE_deg_Avg'], 'trigger_flags': ['C'], 'set_flag': 'T'},
     # Tilt R → rain gets DC
     {'target': 'Rain_mm_Tot',  'sources': ['TiltNS_deg_Avg', 'TiltWE_deg_Avg'], 'trigger_flags': ['R'], 'set_flag': 'DC'},
     # Tilt T or C → rain gets T
-    {'target': 'Rain_mm_Tot',  'sources': ['TiltNS_deg_Avg', 'TiltWE_deg_Avg'], 'trigger_flags': ['T', 'C'], 'set_flag': 'T'},
+    {'target': 'Rain_mm_Tot',  'sources': ['TiltNS_deg_Avg', 'TiltWE_deg_Avg'], 'trigger_flags': ['C'], 'set_flag': 'T'},
 
     # ClimaVUE50 — solar flux affects air temperature (energy balance correction)
     # AirT gets DC if SlrFD_W_Avg is DC or T (per Notes: "flag DC if SlrFD_W_Avg == DC or T")
@@ -216,14 +216,14 @@ DEPENDENCY_CONFIG = [
     {'target': 'SlrTF_MJ_Tot', 'sources': ['SlrFD_W_Avg'],                      'trigger_flags': ['C', 'T', 'DC'], 'set_flag': 'DC'},
     # SlrTF gets DF if SlrFD_W_Avg is R or E
     {'target': 'SlrTF_MJ_Tot', 'sources': ['SlrFD_W_Avg'],                      'trigger_flags': ['R', 'E'], 'set_flag': 'DF'},
-    # SlrTF inherits Z from SlrFD_W_Avg
+    # CHECK WITH STEPHEN - SlrTF inherits Z from SlrFD_W_Avg 
     {'target': 'SlrTF_MJ_Tot', 'sources': ['SlrFD_W_Avg'],                      'trigger_flags': ['Z'], 'set_flag': 'Z'},
 
     # ClimaVUE50 — wind direction and gust invalid when wind speed == 0 (NV flag applied in pipeline)
     # WindDir/MaxWS also receive DF when WS has hard/error dependency failure.
     {'target': 'WindDir',      'sources': ['WS_ms_Avg'],                         'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
-    {'target': 'MaxWS_ms',     'sources': ['WS_ms_Avg'],                         'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
     {'target': 'WindDir',      'sources': ['WS_ms_Avg'],                         'trigger_flags': ['NV'], 'set_flag': 'NV'},
+    {'target': 'MaxWS_ms',     'sources': ['WS_ms_Avg'],                         'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
     {'target': 'MaxWS_ms',     'sources': ['WS_ms_Avg'],                         'trigger_flags': ['NV'], 'set_flag': 'NV'},
 
     # ClimaVUE50 — Dist_km also receives DF when Strikes is R/E/DF.
@@ -236,14 +236,16 @@ DEPENDENCY_CONFIG = [
     # -----------------------------------------------------------------------
     # DT affects TCDT (DF if DT is R or E)
     {'target': 'TCDT_Avg',     'sources': ['DT_Avg'],                            'trigger_flags': ['R', 'E'], 'set_flag': 'DF'},
-    # Q depends on DT (Flags_Depend includes DF)
-    {'target': 'Q_Avg',        'sources': ['DT_Avg'],                            'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
     # Q (quality) affects TCDT — DC if Q is C (uncertain echo)
     {'target': 'TCDT_Avg',     'sources': ['Q_Avg'],                             'trigger_flags': ['C'], 'set_flag': 'DC'},
+    # CHECK WITH STEPHEN: Q affects TCDT — DF if Q is R, E, or DF (bad/no echo)
+    {'target': 'TCDT_Avg',     'sources': ['Q_Avg'],                            'trigger_flags': ['R', 'E'], 'set_flag': 'DF'},
     # AirT affects TCDT (temperature correction) — DC if AirT is DC
     {'target': 'TCDT_Avg',     'sources': ['AirT_C_Avg'],                        'trigger_flags': ['DC'], 'set_flag': 'DC'},
     # AirT affects TCDT — DF if AirT is R, E, or DF
     {'target': 'TCDT_Avg',     'sources': ['AirT_C_Avg'],                        'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
+     # Q depends on DT (Flags_Depend includes DF)
+    {'target': 'Q_Avg',        'sources': ['DT_Avg'],                            'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
 
     # TCDT affects snow depth (DBTCDT)
     {'target': 'DBTCDT_Avg',   'sources': ['TCDT_Avg'],                          'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
@@ -257,7 +259,7 @@ DEPENDENCY_CONFIG = [
     {'target': 'SWnet_Avg',    'sources': ['SWin_Avg', 'SWout_Avg'],             'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
     # SWnet gets DC if SWin or SWout is C (per Notes: "Flag DC if SWout_Avg OR SWin_Avg == C")
     {'target': 'SWnet_Avg',    'sources': ['SWin_Avg', 'SWout_Avg'],             'trigger_flags': ['C'], 'set_flag': 'DC'},
-    # SWnet inherits Z from SWin
+    # CHECK WITH STEPHEN - SWnet inherits Z from SWin
     {'target': 'SWnet_Avg',    'sources': ['SWin_Avg'],                          'trigger_flags': ['Z'], 'set_flag': 'Z'},
     # SWout Z is applied directly by nighttime sign checks.
     # LWin/LWout affect LWnet — DF if R or E
@@ -269,7 +271,7 @@ DEPENDENCY_CONFIG = [
     {'target': 'SWalbedo_Avg', 'sources': ['SWin_Avg', 'SWout_Avg'],             'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
     # Albedo gets DC if SWin or SWout is C (per Notes: "Flag DC if SWout_Avg OR SWin_Avg == C")
     {'target': 'SWalbedo_Avg', 'sources': ['SWin_Avg', 'SWout_Avg'],             'trigger_flags': ['C'], 'set_flag': 'DC'},
-    # Albedo inherits Z from SWin
+    # CHECK WITH STEPHEM - Albedo inherits Z from SWin
     {'target': 'SWalbedo_Avg', 'sources': ['SWin_Avg'],                          'trigger_flags': ['Z'], 'set_flag': 'Z'},
     # DZ is applied programmatically in the pipeline (SWin < 20 W/m²), not via dependency propagation
 
@@ -279,7 +281,8 @@ DEPENDENCY_CONFIG = [
     {'target': 'NR_Avg',       'sources': ['SWin_Avg', 'SWout_Avg', 'LWin_Avg', 'LWout_Avg'], 'trigger_flags': ['C'], 'set_flag': 'DC'},
 ]
 
-# Solar columns that get the nighttime Z-flag check
+# S- CHECK WITH STEPHEN: olar columns that get the nighttime Z-flag check
+# Swnet does NOT get the Z from this loop, but gets it from inheritance via Swin
 SOLAR_COLUMNS = ['SlrFD_W_Avg', 'SWin_Avg', 'SWout_Avg']
 
 # Canonical sensor column names with accepted alias spellings.
@@ -1176,7 +1179,7 @@ def main():
     # Logger Script, and Field Visit windows for every file in the session.
     # ------------------------------------------------------------------
     st.sidebar.divider()
-    st.sidebar.caption("📋 MetadataLog (Optional)")
+    st.sidebar.caption("MetadataLog (Optional)")
     sidebar_metalog = st.sidebar.file_uploader(
         "Upload MetadataLog.xlsx",
         type=["xlsx"],
@@ -1194,7 +1197,7 @@ def main():
             st.session_state["metalog_raw"]  = sidebar_metalog.read()
             st.session_state["metalog_name"] = sidebar_metalog.name
             sidebar_metalog.seek(0)
-        st.sidebar.success(f"✅ Loaded: **{sidebar_metalog.name}**")
+        st.sidebar.success(f"Loaded: **{sidebar_metalog.name}**")
     else:
         # User removed the file — clear the cache
         st.session_state.pop("metalog_raw",  None)
@@ -1872,18 +1875,18 @@ def main():
                         grp_name = new_grp_name if new_grp_name else None
                         current_cols = []
                         current_thresholds = {}
-                        current_sensor_height = 160
+                        current_sensor_height = 200
                     else:
                         grp_name = selected_group
                         current_data = groups[selected_group]
                         # Handle both old and new format
                         if isinstance(current_data, dict) and "thresholds" in current_data:
                             current_thresholds = current_data["thresholds"]
-                            current_sensor_height = current_data.get("sensor_height", 160)
+                            current_sensor_height = current_data.get("sensor_height", 200)
                         else:
                             # Legacy format: dict is just thresholds
                             current_thresholds = current_data
-                            current_sensor_height = 160
+                            current_sensor_height = 200
                         current_cols = list(current_thresholds.keys())
 
                 with col_grp2:
@@ -2096,10 +2099,10 @@ def main():
                 def _extract_group_payload(group_name):
                     grp_data = groups.get(group_name, {})
                     if isinstance(grp_data, dict) and "thresholds" in grp_data:
-                        return grp_data.get("thresholds", {}), grp_data.get("sensor_height", 160)
+                        return grp_data.get("thresholds", {}), grp_data.get("sensor_height", 200)
                     if isinstance(grp_data, dict):
-                        return grp_data, 160
-                    return {}, 160
+                        return grp_data, 200
+                    return {}, 200
 
                 active_deps = []
                 for cfg in st_cfg:
@@ -2126,7 +2129,7 @@ def main():
                     st.write(f"**Sensor Heights by Group:** {' | '.join(height_labels)}")
                 else:
                     st.write("**Active Groups:** None (Using Defaults)")
-                    st.write("**Sensor Height:** 160 cm (default)")
+                    st.write("**Sensor Height:** 200 cm (default)")
                 
                 # Build Comparison Table — show R and C limits side by side
                 preview_data = []
@@ -2288,8 +2291,8 @@ def main():
                 # Helper: extract thresholds dict from an instrument-group entry
                 def _get_grp_thresholds(grp_data):
                     if isinstance(grp_data, dict) and "thresholds" in grp_data:
-                        return grp_data["thresholds"], grp_data.get("sensor_height", 160)
-                    return grp_data, 160
+                        return grp_data["thresholds"], grp_data.get("sensor_height", 200)
+                    return grp_data, 200
 
                 # Identify columns to QC
                 qc_cols = [
@@ -2332,7 +2335,7 @@ def main():
 
                     # --- Build time-varying limit Series for R tier ---
                     # Default sensor height (overridden per deployment below)
-                    default_sensor_height = 160
+                    default_sensor_height = 200
 
                     # Check if any deployment overrides this column
                     relevant_deps = [
@@ -2468,7 +2471,7 @@ def main():
                      # Build time-varying limit for T > H-50.
                      # Start with a default, then override only from groups that
                      # explicitly define DBTCDT_Avg thresholds (e.g., SR50).
-                     default_sensor_height = 160
+                     default_sensor_height = 200
                      limit_series = pd.Series(default_sensor_height - 50, index=df.index)
 
                      for dep in current_deps:
