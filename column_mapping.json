@@ -297,7 +297,8 @@
         "aliases": [
             "lwin",
             "LongWave_In",
-            "LWin_Avg"
+            "LWin_Avg",
+            "asdcadsc"
         ],
         "unit": "W/m^2",
         "unit_aliases": [
@@ -374,7 +375,8 @@
     },
     "asdf": {
         "aliases": [
-            "asdfacdscsda"
+            "asdfacdscsda",
+            "spiderman"
         ],
         "unit": "adc",
         "unit_aliases": [

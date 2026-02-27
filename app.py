@@ -7,6 +7,7 @@ import json
 import numpy as np
 import csv
 import io
+import re
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta, timezone
 from suntime import Sun
@@ -305,6 +306,28 @@ THRESHOLD_KEY_EQUIVALENTS = {
 
 def canonicalize_column_name(name):
     return COLUMN_ALIASES.get(name, name)
+
+def resolve_height_formula_token(value, sensor_height):
+    """
+    Resolve formula tokens like 'H-50' / 'H+5' against a sensor height.
+    Returns the original value when no token is detected.
+    """
+    if not isinstance(value, str):
+        return value
+    token = value.strip().upper().replace(" ", "")
+    if token == "":
+        return value
+    if token == "H+5":
+        return float(sensor_height) + 5.0
+    if token == "H-50":
+        return float(sensor_height) - 50.0
+
+    m = re.fullmatch(r"H([+-])(\d+(?:\.\d+)?)", token)
+    if not m:
+        return value
+    op, delta_raw = m.groups()
+    delta = float(delta_raw)
+    return float(sensor_height) + delta if op == "+" else float(sensor_height) - delta
 
 def threshold_key_variants(col_name):
     """
@@ -776,6 +799,7 @@ def process_file_data(uploaded_file, mapping, metadata, data_id, station_id, ski
         skip_rows: List of 0-indexed row numbers to skip for CSV files.
                    Defaults to [0, 2, 3] (standard TOA5 layout).
     """
+
     if skip_rows is None:
         skip_rows = [0, 2, 3]  # TOA5: environment row, units row, processing-type row
     try:
@@ -1073,6 +1097,7 @@ def mapping_editor_ui():
     # num_rows="dynamic" allows adding/deleting rows
     edited_df = st.data_editor(
         df, 
+        key="column_mapping_editor",
         num_rows="dynamic", 
         use_container_width=True,
         hide_index=True,
@@ -1122,18 +1147,13 @@ def mapping_editor_ui():
         except Exception as e:
             st.error(f"Error saving configuration: {e}")
 
-# Check for st.dialog support (Streamlit >= 1.34.0)
-if hasattr(st, "dialog"):
-    @st.dialog("Global Settings: Column Mapping", width="large")
-    def mapping_editor_dialog():
+def mapping_editor_dialog():
+    # Keep this editor outside st.dialog to avoid FragmentStorageKeyError when
+    # adding/removing rows in st.data_editor(num_rows="dynamic").
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Edit Column Mapping")
+    with st.sidebar.expander("Show Editor", expanded=False):
         mapping_editor_ui()
-else:
-    def mapping_editor_dialog():
-        # Fallback for older Streamlit
-        st.sidebar.markdown("---")
-        st.sidebar.subheader("Edit Column Mapping")
-        with st.sidebar.expander("Show Editor", expanded=True):
-             mapping_editor_ui()
 
 # --- Main App ---
 
@@ -1143,14 +1163,8 @@ def main():
     # --- Sidebar ---
     st.sidebar.header("Global Settings")
     
-    # Column Mapping Editor Button
-    if hasattr(st, "dialog"):
-        if st.sidebar.button("Edit Column Mapping"):
-            mapping_editor_dialog()
-    else:
-        # For fallback, we might just show it inline or use checkbox/expander logic
-        # But for simplicity in fallback, let's just show the expander if they want
-        mapping_editor_dialog()
+    # Stable inline editor (avoids fragment lifecycle issues in modal dialog).
+    mapping_editor_dialog()
 
     st.sidebar.divider()
 
@@ -1976,6 +1990,20 @@ def main():
                                     cur_c_max = spec.get('c_max') if spec.get('c_max') is not None else ''
                                 else:
                                     cur_r_min, cur_r_max, cur_c_min, cur_c_max = '', '', '', ''
+
+                                # Resolve formula tokens for UI display (e.g. H-50 -> numeric).
+                                cur_r_min = resolve_height_formula_token(cur_r_min, grp_sensor_height)
+                                cur_r_max = resolve_height_formula_token(cur_r_max, grp_sensor_height)
+                                cur_c_min = resolve_height_formula_token(cur_c_min, grp_sensor_height)
+                                cur_c_max = resolve_height_formula_token(cur_c_max, grp_sensor_height)
+
+                                # If DBTCDT_Avg max was previously saved as blank/null, restore
+                                # the expected sensor-height-dependent default in the editor.
+                                if c == 'DBTCDT_Avg' and (
+                                    cur_r_max == '' or cur_r_max is None or
+                                    (isinstance(cur_r_max, float) and np.isnan(cur_r_max))
+                                ):
+                                    cur_r_max = float(grp_sensor_height) - 50.0
                                 
                                 edit_data.append({
                                     "Column": c,
@@ -1985,17 +2013,17 @@ def main():
                             
                             grp_df = pd.DataFrame(edit_data)
                             
-                            # Configure data editor to make Max read-only for sensor-height columns
+                            # Configure data editor column hints.
                             column_config = {
-                                "Max": st.column_config.NumberColumn(
-                                    "Max",
-                                    help="Auto-calculated for DT_Avg & DBTCDT_Avg (Sensor Height + 5)",
+                                "R Max": st.column_config.NumberColumn(
+                                    "R Max",
+                                    help="DBTCDT_Avg default is Sensor Height - 50.",
                                 )
                             }
                             
                             edited_grp_df = st.data_editor(
                                 grp_df, 
-                                key=f"editor_{grp_name}", 
+                                key=f"editor_{grp_name}_{grp_sensor_height}", 
                                 use_container_width=True,
                                 column_config=column_config,
                                 disabled=["Column"]  # Prevent column name editing
@@ -2006,15 +2034,20 @@ def main():
                                 for idx, row in edited_grp_df.iterrows():
                                     # Convert empty strings back to None for the R/C dict
                                     def _to_num_or_none(x):
+                                        x = resolve_height_formula_token(x, grp_sensor_height)
                                         if x == '' or x is None or (isinstance(x, float) and np.isnan(x)):
                                             return None
                                         try:
                                             return float(x)
                                         except (ValueError, TypeError):
                                             return None
+                                    r_max_val = _to_num_or_none(row.get('R Max'))
+                                    # Keep DBTCDT_Avg physically bounded even when left blank.
+                                    if row['Column'] == 'DBTCDT_Avg' and r_max_val is None:
+                                        r_max_val = float(grp_sensor_height) - 50.0
                                     new_thresholds[row['Column']] = {
                                         'r_min': _to_num_or_none(row.get('R Min')),
-                                        'r_max': _to_num_or_none(row.get('R Max')),
+                                        'r_max': r_max_val,
                                         'c_min': _to_num_or_none(row.get('C Min')),
                                         'c_max': _to_num_or_none(row.get('C Max')),
                                     }
@@ -2173,24 +2206,29 @@ def main():
                     def_r_max = v.get('r_max', '')
                     def_c_min = v.get('c_min', '')
                     def_c_max = v.get('c_max', '')
+                    default_sensor_height = 200
                     
                     # Override from all active instrument groups (last matching deployment wins)
-                    act_r_min, act_r_max = def_r_min, def_r_max
-                    act_c_min, act_c_max = def_c_min, def_c_max
+                    act_r_min = resolve_height_formula_token(def_r_min, default_sensor_height)
+                    act_r_max = resolve_height_formula_token(def_r_max, default_sensor_height)
+                    act_c_min = resolve_height_formula_token(def_c_min, default_sensor_height)
+                    act_c_max = resolve_height_formula_token(def_c_max, default_sensor_height)
                     source = "Default"
                     source_group = ""
 
                     for dep in active_deps:
                         dep_group = dep.get('group')
-                        grp_thresholds, _ = _extract_group_payload(dep_group)
+                        grp_thresholds, grp_sensor_height = _extract_group_payload(dep_group)
                         grp_spec, _matched_key = get_threshold_spec_for_column(grp_thresholds, k)
                         if grp_spec is None:
                             continue
                         if isinstance(grp_spec, dict):
-                            act_r_min = grp_spec.get('r_min', def_r_min)
-                            act_r_max = grp_spec.get('r_max', def_r_max)
-                            act_c_min = grp_spec.get('c_min', def_c_min)
-                            act_c_max = grp_spec.get('c_max', def_c_max)
+                            act_r_min = resolve_height_formula_token(grp_spec.get('r_min', def_r_min), grp_sensor_height)
+                            act_r_max = resolve_height_formula_token(grp_spec.get('r_max', def_r_max), grp_sensor_height)
+                            act_c_min = resolve_height_formula_token(grp_spec.get('c_min', def_c_min), grp_sensor_height)
+                            act_c_max = resolve_height_formula_token(grp_spec.get('c_max', def_c_max), grp_sensor_height)
+                            if k == 'DBTCDT_Avg' and act_r_max is None:
+                                act_r_max = float(grp_sensor_height) - 50.0
                         elif isinstance(grp_spec, (list, tuple)) and len(grp_spec) >= 2:
                             act_r_min, act_r_max = grp_spec[0], grp_spec[1]
                             act_c_min, act_c_max = def_c_min, def_c_max
@@ -2530,16 +2568,14 @@ def main():
                      mask_t = (vals > limit_series)
                      _append_flag(df, flag_col, mask_t, 'R')
 
-                     
-                # Wind Logic (NV)
-                # WindDir/MaxWS are valid only when WS_ms_Avg > 0.
-                if 'WS_ms_Avg' in df.columns:
+                # Wind logic (NV): when wind speed is 0, wind direction is invalid.
+                # Apply NV to wind direction only (not WS_ms_Avg).
+
+                if 'WS_ms_Avg' in df.columns and 'WindDir' in df.columns:
                     ws = pd.to_numeric(df['WS_ms_Avg'], errors='coerce')
                     mask_no_wind = ws.notna() & (ws == 0)
                     if mask_no_wind.any():
-                        # Source flag for dependency propagation:
-                        # WS_ms_Avg (NV) -> WindDir/MaxWS_ms (NV)
-                        fc = 'WS_ms_Avg_Flag'
+                        fc = f"{wind_dir_col}_Flag"
                         if fc not in df.columns:
                             df[fc] = ""
                         _append_flag(df, fc, mask_no_wind, 'NV')
@@ -2606,6 +2642,7 @@ def main():
                                     # Per RefSensorThresholds notes:
                                     #   SlrFD_W_Avg: Z when > 0 at night
                                     #   SWin_Avg/SWout_Avg: Z when < 0 at night
+                                    #   HEAR BACK FROM STEPHEN WITH THIS.
                                     if scol == 'SlrFD_W_Avg':
                                         mask_z = vals > 0.0001
                                     else:
