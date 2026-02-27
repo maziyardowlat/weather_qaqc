@@ -1029,6 +1029,93 @@ def compute_flag_trend_tables(filtered_flags, df_viz, freq_code):
     )
     return total_over_time, by_flag_over_time
 
+def compute_daily_variable_flag_percent_table(filtered_flags, df_viz):
+    """
+    Builds daily flag percentages at the variable level.
+
+    Output columns:
+      TIMESTAMP (day), variable, flag, Flag_Count, Variable_Daily_Count,
+      Pct_of_Variable_Daily_Count
+    """
+    if 'TIMESTAMP' not in df_viz.columns:
+        return pd.DataFrame()
+
+    trend = filtered_flags[['row_idx', 'variable', 'flag']].join(
+        df_viz[['TIMESTAMP']],
+        on='row_idx',
+        how='left'
+    )
+    trend = trend.dropna(subset=['TIMESTAMP'])
+    if trend.empty:
+        return pd.DataFrame()
+
+    trend['TIMESTAMP'] = pd.to_datetime(trend['TIMESTAMP'], errors='coerce')
+    trend = trend.dropna(subset=['TIMESTAMP'])
+    if trend.empty:
+        return pd.DataFrame()
+
+    numerator = (
+        trend
+        .groupby([pd.Grouper(key='TIMESTAMP', freq='D'), 'variable', 'flag'])
+        .size()
+        .rename('Flag_Count')
+        .reset_index()
+    )
+
+    # Denominator per day+variable:
+    # count rows where that variable has a non-null value on that day.
+    variables = sorted(numerator['variable'].unique().tolist())
+    value_cols = [v for v in variables if v in df_viz.columns]
+    valid_ts_mask = df_viz['TIMESTAMP'].notna()
+
+    denominator = pd.DataFrame(columns=['TIMESTAMP', 'variable', 'Variable_Daily_Count'])
+    if value_cols and valid_ts_mask.any():
+        day_key = pd.to_datetime(df_viz.loc[valid_ts_mask, 'TIMESTAMP']).dt.floor('D')
+        denom_matrix = df_viz.loc[valid_ts_mask, value_cols].notna().groupby(day_key).sum()
+        denominator = (
+            denom_matrix
+            .stack()
+            .rename('Variable_Daily_Count')
+            .reset_index()
+            .rename(columns={'level_1': 'variable'})
+        )
+        denominator['Variable_Daily_Count'] = denominator['Variable_Daily_Count'].astype(int)
+
+    # Fallback denominator for variables not present as data columns:
+    # use total timestamped rows for the day.
+    day_rows = (
+        df_viz.loc[valid_ts_mask, ['TIMESTAMP']]
+        .groupby(pd.Grouper(key='TIMESTAMP', freq='D'))
+        .size()
+        .rename('Daily_Row_Count')
+        .reset_index()
+    )
+    base_pairs = numerator[['TIMESTAMP', 'variable']].drop_duplicates()
+    denominator_full = (
+        base_pairs
+        .merge(denominator, on=['TIMESTAMP', 'variable'], how='left')
+        .merge(day_rows, on='TIMESTAMP', how='left')
+    )
+    denominator_full['Variable_Daily_Count'] = (
+        denominator_full['Variable_Daily_Count']
+        .fillna(denominator_full['Daily_Row_Count'])
+        .fillna(0)
+        .astype(int)
+    )
+
+    out = numerator.merge(
+        denominator_full[['TIMESTAMP', 'variable', 'Variable_Daily_Count']],
+        on=['TIMESTAMP', 'variable'],
+        how='left'
+    )
+    out['Pct_of_Variable_Daily_Count'] = np.where(
+        out['Variable_Daily_Count'] > 0,
+        (out['Flag_Count'] / out['Variable_Daily_Count']) * 100.0,
+        0.0
+    ).round(2)
+
+    return out.sort_values(['TIMESTAMP', 'variable', 'flag']).reset_index(drop=True)
+
 def build_trend_png(total_over_time, by_flag_over_time, title):
     """
     Renders trend tables as a PNG image (two panels).
@@ -1049,6 +1136,29 @@ def build_trend_png(total_over_time, by_flag_over_time, title):
     axes[1].set_xlabel("Time")
     axes[1].set_ylabel("Count")
     axes[1].grid(alpha=0.3)
+
+    png_buffer = io.BytesIO()
+    fig.savefig(png_buffer, format="png", dpi=180)
+    plt.close(fig)
+    png_buffer.seek(0)
+    return png_buffer.getvalue()
+
+def build_daily_variable_flag_pct_png(pct_pivot, title):
+    """
+    Renders a daily variable-level percentage trend chart as a PNG.
+    Expects columns to represent flags for a single variable.
+    """
+    fig, ax = plt.subplots(figsize=(13, 6), constrained_layout=True)
+    pct_pivot.plot(ax=ax, linewidth=1.5)
+    ax.set_title(title)
+    ax.set_xlabel("Date")
+    ax.set_ylabel("% of Variable Records (Daily)")
+    ax.set_ylim(bottom=0)
+    ax.grid(alpha=0.3)
+    if pct_pivot.shape[1] <= 20:
+        ax.legend(title="Flag", loc="upper right", fontsize=8)
+    else:
+        ax.legend([], [], frameon=False)
 
     png_buffer = io.BytesIO()
     fig.savefig(png_buffer, format="png", dpi=180)
@@ -3092,6 +3202,22 @@ def main():
                         default=default_flags_save,
                         key="save_graphs_flags"
                     )
+                    variable_options_save = (
+                        flags_long_save['variable']
+                        .value_counts()
+                        .index
+                        .tolist()
+                    )
+                    default_variable_count = min(5, len(variable_options_save))
+                    selected_variables_save = st.multiselect(
+                        "Variables for daily % by variable graph",
+                        options=variable_options_save,
+                        default=variable_options_save[:default_variable_count],
+                        key="save_graphs_daily_pct_variables",
+                        help="Daily percentages are computed per variable as: "
+                             "(flag count for variable/day) / (records for variable/day). "
+                             "One PNG is generated per selected variable."
+                    )
                     freq_save = st.multiselect(
                         "Frequencies to save",
                         options=["Daily", "Weekly", "Monthly"],
@@ -3108,6 +3234,8 @@ def main():
                     if st.button("Generate and Save Graph Files", type="primary", key="save_graphs_btn"):
                         if not selected_flags_save:
                             st.warning("Select at least one flag.")
+                        elif not selected_variables_save:
+                            st.warning("Select at least one variable for the daily % graph.")
                         elif not freq_save:
                             st.warning("Select at least one frequency.")
                         else:
@@ -3196,6 +3324,128 @@ def main():
                                 )
 
                                 created_paths.extend([pct_csv_path, pct_xlsx_path, pct_png_path])
+
+                                # Daily % by variable and flag.
+                                daily_var_pct = compute_daily_variable_flag_percent_table(
+                                    filtered_flags=filtered_save,
+                                    df_viz=df_save
+                                )
+                                if daily_var_pct.empty:
+                                    st.info("No timestamped rows available for daily variable-percentage graph.")
+                                else:
+                                    daily_var_pct = daily_var_pct[
+                                        daily_var_pct['variable'].isin(selected_variables_save)
+                                    ].copy()
+                                    if daily_var_pct.empty:
+                                        st.info("No rows available for the selected variable(s) in daily variable-percentage graph.")
+                                    else:
+                                        daily_var_pct_display = daily_var_pct[
+                                            [
+                                                "TIMESTAMP", "variable", "flag", "Flag_Count",
+                                                "Variable_Daily_Count", "Pct_of_Variable_Daily_Count"
+                                            ]
+                                        ].copy()
+                                        daily_var_pct_display.rename(
+                                            columns={"flag": "Flag"},
+                                            inplace=True
+                                        )
+                                        daily_var_pct_pivot_table = (
+                                            daily_var_pct_display
+                                            .pivot_table(
+                                                index=["TIMESTAMP", "variable"],
+                                                columns="Flag",
+                                                values="Pct_of_Variable_Daily_Count",
+                                                aggfunc="first",
+                                                fill_value=0
+                                            )
+                                            .reset_index()
+                                        )
+
+                                        st.subheader("Daily Flag % by Variable")
+                                        st.dataframe(
+                                            daily_var_pct_display,
+                                            use_container_width=True,
+                                            hide_index=True
+                                        )
+
+                                        daily_pct_csv_path = os.path.join(
+                                            save_dir,
+                                            f"{base_name}_daily_variable_flag_percentages_{run_stamp}.csv"
+                                        )
+                                        daily_pct_xlsx_path = os.path.join(
+                                            save_dir,
+                                            f"{base_name}_daily_variable_flag_percentages_{run_stamp}.xlsx"
+                                        )
+
+                                        daily_var_pct_display.to_csv(daily_pct_csv_path, index=False)
+                                        with pd.ExcelWriter(daily_pct_xlsx_path, engine="openpyxl") as writer:
+                                            daily_var_pct_display.to_excel(
+                                                writer,
+                                                sheet_name="Daily Variable Flag %",
+                                                index=False
+                                            )
+                                            daily_var_pct_pivot_table.to_excel(
+                                                writer,
+                                                sheet_name="Daily Variable Flag % Pivot",
+                                                index=False
+                                            )
+                                        created_paths.extend([
+                                            daily_pct_csv_path,
+                                            daily_pct_xlsx_path
+                                        ])
+
+                                        png_paths = []
+                                        for var_name in selected_variables_save:
+                                            var_df = daily_var_pct[daily_var_pct["variable"] == var_name].copy()
+                                            if var_df.empty:
+                                                continue
+
+                                            var_df["Flag_Label"] = var_df["flag"].apply(format_flag_label)
+                                            var_pivot = (
+                                                var_df
+                                                .pivot_table(
+                                                    index="TIMESTAMP",
+                                                    columns="Flag_Label",
+                                                    values="Pct_of_Variable_Daily_Count",
+                                                    aggfunc="first",
+                                                    fill_value=0
+                                                )
+                                                .sort_index()
+                                            )
+                                            if var_pivot.empty:
+                                                continue
+
+                                            var_slug = re.sub(r"[^A-Za-z0-9]+", "_", str(var_name)).strip("_") or "variable"
+                                            var_png_path = os.path.join(
+                                                save_dir,
+                                                f"{base_name}_daily_variable_flag_percentages_{var_slug}_{run_stamp}.png"
+                                            )
+                                            var_png_bytes = build_daily_variable_flag_pct_png(
+                                                var_pivot,
+                                                f"{base_name} - {var_name} Daily Flag %"
+                                            )
+
+                                            with open(var_png_path, "wb") as f:
+                                                f.write(var_png_bytes)
+
+                                            st.subheader(f"Daily Flag %: {var_name}")
+                                            st.image(
+                                                var_png_bytes,
+                                                caption=f"Daily flag percentages for {var_name}",
+                                                use_container_width=True
+                                            )
+                                            st.download_button(
+                                                label=f"Download {var_name} Daily % Chart (PNG)",
+                                                data=var_png_bytes,
+                                                file_name=os.path.basename(var_png_path),
+                                                mime="image/png",
+                                                key=f"download_daily_var_pct_png_{var_slug}_{run_stamp}"
+                                            )
+                                            png_paths.append(var_png_path)
+
+                                        if not png_paths:
+                                            st.info("No daily variable-percentage PNGs were generated for the selected variables.")
+                                        created_paths.extend(png_paths)
 
                                 for freq_label in freq_save:
                                     total_t, by_flag_t = compute_flag_trend_tables(
