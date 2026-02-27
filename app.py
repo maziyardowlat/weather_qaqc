@@ -947,6 +947,103 @@ def load_qc_visualization_data(file_path):
 
     return df, flag_long
 
+def sop_tidy_output_filename(station_code):
+    """
+    SOP/FileNames convention for historical tidy output:
+    [##XX####]_tidy_historical.csv
+    """
+    safe_station = re.sub(r"[^A-Za-z0-9]", "", str(station_code).strip())
+    return f"{safe_station}_tidy_historical.csv"
+
+def _parse_logger_model_serial(logger_id):
+    """
+    Parse logger ID forms like 'CR350-1379' or 'CR350_1379' -> (CR350, 1379).
+    Returns None if not parseable.
+    """
+    raw = str(logger_id).strip()
+    if raw == "" or raw in {"999", "nan", "None"}:
+        return None
+    m = re.match(r"^([A-Za-z0-9]+)[-_]([A-Za-z0-9]+)$", raw)
+    if not m:
+        return None
+    return m.group(1), m.group(2)
+
+def build_sop_tidy_save_name(df_qc, station_code, output_dir, selected_input_name=None):
+    """
+    Build SOP-compliant tidy output name.
+
+    Preferred (contemporary): [STATION]_tidy_[MODEL]_[SERIAL]_[YYYYMMDD].csv
+    Fallback (historical):    [STATION]_tidy_historical.csv
+    """
+    safe_station = re.sub(r"[^A-Za-z0-9]", "", str(station_code).strip())
+    fallback_name = sop_tidy_output_filename(safe_station)
+
+    if df_qc is None or not isinstance(df_qc, pd.DataFrame) or 'Logger_ID' not in df_qc.columns:
+        return fallback_name
+
+    # Determine a single logger model/serial pair.
+    logger_pairs = {
+        parsed for parsed in (
+            _parse_logger_model_serial(v)
+            for v in df_qc['Logger_ID'].dropna().astype(str).tolist()
+        )
+        if parsed is not None
+    }
+    if len(logger_pairs) != 1:
+        return fallback_name
+    model, serial = next(iter(logger_pairs))
+
+    # Determine retrieval date from file names available in the workspace.
+    date_candidates = set()
+    names_to_scan = []
+    if selected_input_name:
+        names_to_scan.append(os.path.basename(str(selected_input_name)))
+    try:
+        names_to_scan.extend(os.listdir(output_dir))
+    except Exception:
+        pass
+
+    p_specific = re.compile(
+        rf"^{re.escape(safe_station)}_(?:raw|tidy)_{re.escape(model)}_{re.escape(serial)}_(\d{{8}})\.(?:csv|dat)$",
+        re.IGNORECASE
+    )
+    for name in names_to_scan:
+        m = p_specific.match(os.path.basename(str(name)))
+        if m:
+            date_candidates.add(m.group(1))
+
+    # If we still can't find one, allow station-level dates from raw/tidy names.
+    if not date_candidates:
+        p_station = re.compile(
+            rf"^{re.escape(safe_station)}_(?:raw|tidy)_[A-Za-z0-9]+_[A-Za-z0-9]+_(\d{{8}})\.(?:csv|dat)$",
+            re.IGNORECASE
+        )
+        for name in names_to_scan:
+            m = p_station.match(os.path.basename(str(name)))
+            if m:
+                date_candidates.add(m.group(1))
+
+    if not date_candidates:
+        return fallback_name
+
+    retrieval_date = max(date_candidates)
+    return f"{safe_station}_tidy_{model}_{serial}_{retrieval_date}.csv"
+
+def is_qaqc_output_file(filename):
+    """
+    Accept both legacy and SOP-style QA/QC output filenames.
+    """
+    name = str(filename)
+    # Legacy app output
+    if name.endswith("_QC.csv"):
+        return True
+    # SOP/FileNames tidy outputs (historical or contemporary) saved as CSV
+    if re.fullmatch(r"[A-Za-z0-9]+_tidy_historical\.csv", name):
+        return True
+    if re.fullmatch(r"[A-Za-z0-9]+_tidy_[A-Za-z0-9]+_[A-Za-z0-9]+_\d{8}\.csv", name):
+        return True
+    return False
+
 def build_qc_viz_report_xlsx(summary_df, flag_counts, variable_counts, matrix, total_over_time=None, by_flag_over_time=None):
     """
     Builds an Excel report for the QA/QC visualization tab.
@@ -2972,18 +3069,23 @@ def main():
                                 
                         df_qc = df_qc[ordered_cols]
 
-                        # Save
-                        out_name = selected_file.replace("_tidy.csv", "_tidy_QC.csv")
-                        if "_QC" not in out_name: # prevent double QCQC
-                             out_name = selected_file.replace(".csv", "_QC.csv")
-
+                        # Save using SOP/FileNames convention (prefer contemporary name
+                        # when logger model/serial + retrieval date can be determined).
+                        out_name = build_sop_tidy_save_name(
+                            df_qc=df_qc,
+                            station_code=station_name,
+                            output_dir=output_dir,
+                            selected_input_name=selected_file
+                        )
                         save_path = os.path.join(output_dir, out_name)
                         
                         # Use helper to include units row
                         write_csv_with_units(df_qc, save_path)
 
                         st.success("QA/QC Complete!")
-                        st.success(f"Saved to: {save_path}")
+                        if out_name.endswith("_tidy_historical.csv"):
+                            st.info("Could not uniquely determine contemporary logger/date components; used historical SOP name.")
+                        st.success(f"Saved to (SOP format): {save_path}")
                         st.dataframe(df_qc.head(50))
 
                     except Exception as e:
@@ -2995,12 +3097,12 @@ def main():
         st.header("3. QA/QC Visualization")
 
         if os.path.exists(output_dir):
-            qc_files = sorted([f for f in os.listdir(output_dir) if f.endswith("_QC.csv")])
+            qc_files = sorted([f for f in os.listdir(output_dir) if is_qaqc_output_file(f)])
         else:
             qc_files = []
 
         if not qc_files:
-            st.info("No QA/QC output files found. Run Tab 2 first to generate a *_QC.csv file.")
+            st.info("No QA/QC output files found. Run Tab 2 first to generate a tidy QA/QC file.")
         else:
             selected_qc_file = st.selectbox("Select QA/QC File to Visualize", qc_files)
 
@@ -3172,12 +3274,12 @@ def main():
         st.caption("Generate and save Daily/Weekly trend graph files from the final QA/QC output.")
 
         if os.path.exists(output_dir):
-            qc_files_save = sorted([f for f in os.listdir(output_dir) if f.endswith("_QC.csv")])
+            qc_files_save = sorted([f for f in os.listdir(output_dir) if is_qaqc_output_file(f)])
         else:
             qc_files_save = []
 
         if not qc_files_save:
-            st.info("No QA/QC output files found. Run Tab 2 first to generate a *_QC.csv file.")
+            st.info("No QA/QC output files found. Run Tab 2 first to generate a tidy QA/QC file.")
         else:
             selected_qc_file_save = st.selectbox(
                 "Select QA/QC File",
