@@ -202,13 +202,13 @@ DEPENDENCY_CONFIG = [
     # AirT gets DC if SlrFD_W_Avg is DC or T (per Notes: "flag DC if SlrFD_W_Avg == DC or T")
     {'target': 'AirT_C_Avg',   'sources': ['SlrFD_W_Avg'],                      'trigger_flags': ['DC', 'T'], 'set_flag': 'DC'},
     # AirT gets DF if SlrFD_W_Avg or WS_ms_Avg is R, E, or DF
-    {'target': 'AirT_C_Avg',   'sources': ['SlrFD_W_Avg', 'WS_ms_Avg'],         'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
+    {'target': 'AirT_C_Avg',   'sources': ['SlrFD_W_Avg', 'WS_ms_Avg'],         'trigger_flags': ['R', 'E', 'M', 'DF'], 'set_flag': 'DF'},
 
     # ClimaVUE50 — RH probe temperature affects vapour pressure
-    {'target': 'VP_hPa_Avg',   'sources': ['RHT_Avg'],                          'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
+    {'target': 'VP_hPa_Avg',   'sources': ['RHT_Avg'],                          'trigger_flags': ['R', 'E', 'M', 'DF'], 'set_flag': 'DF'},
 
     # ClimaVUE50 — VP and AirT affect RH
-    {'target': 'RH',           'sources': ['VP_hPa_Avg', 'AirT_C_Avg'],         'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
+    {'target': 'RH',           'sources': ['VP_hPa_Avg', 'AirT_C_Avg'],         'trigger_flags': ['R', 'E', 'M', 'DF'], 'set_flag': 'DF'},
     # RH gets DC if AirT_C_Avg is DC (per Notes: "Flag DC if AirT_C_Avg == DC")
     {'target': 'RH',           'sources': ['AirT_C_Avg'],                       'trigger_flags': ['DC'], 'set_flag': 'DC'},
 
@@ -216,19 +216,19 @@ DEPENDENCY_CONFIG = [
     # SlrTF gets DC if SlrFD_W_Avg is C, T, or DC (per Notes: "DC flag if SlrFD_W_Avg == C, T, DC")
     {'target': 'SlrTF_MJ_Tot', 'sources': ['SlrFD_W_Avg'],                      'trigger_flags': ['C', 'T', 'DC'], 'set_flag': 'DC'},
     # SlrTF gets DF if SlrFD_W_Avg is R or E
-    {'target': 'SlrTF_MJ_Tot', 'sources': ['SlrFD_W_Avg'],                      'trigger_flags': ['R', 'E'], 'set_flag': 'DF'},
-    # CHECK WITH STEPHEN - SlrTF inherits Z from SlrFD_W_Avg 
+    {'target': 'SlrTF_MJ_Tot', 'sources': ['SlrFD_W_Avg'],                      'trigger_flags': ['R', 'E', 'M'], 'set_flag': 'DF'},
+    # CHECK WITH STEPHEN - SlrTF inherits Z from SlrFD_W_Avg
     {'target': 'SlrTF_MJ_Tot', 'sources': ['SlrFD_W_Avg'],                      'trigger_flags': ['Z'], 'set_flag': 'Z'},
 
     # ClimaVUE50 — wind direction and gust invalid when wind speed == 0 (NV flag applied in pipeline)
     # WindDir/MaxWS also receive DF when WS has hard/error dependency failure.
-    {'target': 'WindDir',      'sources': ['WS_ms_Avg'],                         'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
+    {'target': 'WindDir',      'sources': ['WS_ms_Avg'],                         'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
     {'target': 'WindDir',      'sources': ['WS_ms_Avg'],                         'trigger_flags': ['NV'], 'set_flag': 'NV'},
-    {'target': 'MaxWS_ms',     'sources': ['WS_ms_Avg'],                         'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
+    {'target': 'MaxWS_ms',     'sources': ['WS_ms_Avg'],                         'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
     {'target': 'MaxWS_ms',     'sources': ['WS_ms_Avg'],                         'trigger_flags': ['NV'], 'set_flag': 'NV'},
 
     # ClimaVUE50 — Dist_km also receives DF when Strikes is R/E/DF.
-    {'target': 'Dist_km_Avg',  'sources': ['Strikes_Tot'],                       'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
+    {'target': 'Dist_km_Avg',  'sources': ['Strikes_Tot'],                       'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
     # ClimaVUE50 — lightning distance NV is applied directly in pipeline
     # when Strikes_Tot <= 0 (per notes: Dist valid only if strikes > 0).
 
@@ -236,20 +236,20 @@ DEPENDENCY_CONFIG = [
     # SR50 Sonic Ranger
     # -----------------------------------------------------------------------
     # DT affects TCDT (DF if DT is R or E)
-    {'target': 'TCDT_Avg',     'sources': ['DT_Avg'],                            'trigger_flags': ['R', 'E'], 'set_flag': 'DF'},
+    {'target': 'TCDT_Avg',     'sources': ['DT_Avg'],                            'trigger_flags': ['R', 'E', 'M'], 'set_flag': 'DF'},
     # Q (quality) affects TCDT — DC if Q is C (uncertain echo)
     {'target': 'TCDT_Avg',     'sources': ['Q_Avg'],                             'trigger_flags': ['C'], 'set_flag': 'DC'},
     # CHECK WITH STEPHEN: Q affects TCDT — DF if Q is R, E, or DF (bad/no echo)
-    {'target': 'TCDT_Avg',     'sources': ['Q_Avg'],                            'trigger_flags': ['R', 'E'], 'set_flag': 'DF'},
+    {'target': 'TCDT_Avg',     'sources': ['Q_Avg'],                            'trigger_flags': ['R', 'E', 'M'], 'set_flag': 'DF'},
     # AirT affects TCDT (temperature correction) — DC if AirT is DC
     {'target': 'TCDT_Avg',     'sources': ['AirT_C_Avg'],                        'trigger_flags': ['DC'], 'set_flag': 'DC'},
     # AirT affects TCDT — DF if AirT is R, E, or DF
-    {'target': 'TCDT_Avg',     'sources': ['AirT_C_Avg'],                        'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
+    {'target': 'TCDT_Avg',     'sources': ['AirT_C_Avg'],                        'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
      # Q depends on DT (Flags_Depend includes DF)
-    {'target': 'Q_Avg',        'sources': ['DT_Avg'],                            'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
+    {'target': 'Q_Avg',        'sources': ['DT_Avg'],                            'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
 
     # TCDT affects snow depth (DBTCDT)
-    {'target': 'DBTCDT_Avg',   'sources': ['TCDT_Avg'],                          'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
+    {'target': 'DBTCDT_Avg',   'sources': ['TCDT_Avg'],                          'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
     # DBTCDT gets DC if TCDT is DC (per Notes: "Flag DC if TCDT == DC")
     {'target': 'DBTCDT_Avg',   'sources': ['TCDT_Avg'],                          'trigger_flags': ['DC'], 'set_flag': 'DC'},
 
@@ -257,19 +257,19 @@ DEPENDENCY_CONFIG = [
     # SN-500 Net Radiometer
     # -----------------------------------------------------------------------
     # SWin/SWout affect SWnet — DF if R or E
-    {'target': 'SWnet_Avg',    'sources': ['SWin_Avg', 'SWout_Avg'],             'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
+    {'target': 'SWnet_Avg',    'sources': ['SWin_Avg', 'SWout_Avg'],             'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
     # SWnet gets DC if SWin or SWout is C (per Notes: "Flag DC if SWout_Avg OR SWin_Avg == C")
     {'target': 'SWnet_Avg',    'sources': ['SWin_Avg', 'SWout_Avg'],             'trigger_flags': ['C'], 'set_flag': 'DC'},
     # CHECK WITH STEPHEN - SWnet inherits Z from SWin
     {'target': 'SWnet_Avg',    'sources': ['SWin_Avg'],                          'trigger_flags': ['Z'], 'set_flag': 'Z'},
     # SWout Z is applied directly by nighttime sign checks.
     # LWin/LWout affect LWnet — DF if R or E
-    {'target': 'LWnet_Avg',    'sources': ['LWin_Avg', 'LWout_Avg'],             'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
+    {'target': 'LWnet_Avg',    'sources': ['LWin_Avg', 'LWout_Avg'],             'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
     # LWnet gets DC if LWin or LWout is C (per Notes: "flag DC if LWin_Avg OR LWout_Avg == C")
     {'target': 'LWnet_Avg',    'sources': ['LWin_Avg', 'LWout_Avg'],             'trigger_flags': ['C'], 'set_flag': 'DC'},
 
     # SWin/SWout affect albedo — DF if R or E
-    {'target': 'SWalbedo_Avg', 'sources': ['SWin_Avg', 'SWout_Avg'],             'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
+    {'target': 'SWalbedo_Avg', 'sources': ['SWin_Avg', 'SWout_Avg'],             'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
     # Albedo gets DC if SWin or SWout is C (per Notes: "Flag DC if SWout_Avg OR SWin_Avg == C")
     {'target': 'SWalbedo_Avg', 'sources': ['SWin_Avg', 'SWout_Avg'],             'trigger_flags': ['C'], 'set_flag': 'DC'},
     # CHECK WITH STEPHEM - Albedo inherits Z from SWin
@@ -277,7 +277,7 @@ DEPENDENCY_CONFIG = [
     # DZ is applied programmatically in the pipeline (SWin < 20 W/m²), not via dependency propagation
 
     # NR_Avg depends on SWnet/LWnet for DF, and uses SWin/SWout/LWin/LWout for DC.
-    {'target': 'NR_Avg',       'sources': ['SWnet_Avg', 'LWnet_Avg', 'LWin_Avg', 'LWout_Avg'], 'trigger_flags': ['R', 'E', 'DF'], 'set_flag': 'DF'},
+    {'target': 'NR_Avg',       'sources': ['SWnet_Avg', 'LWnet_Avg', 'LWin_Avg', 'LWout_Avg'], 'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
     # NR gets DC if SWin/SWout/LWin/LWout has C (per RefSensorThresholds Notes)
     {'target': 'NR_Avg',       'sources': ['SWin_Avg', 'SWout_Avg', 'LWin_Avg', 'LWout_Avg'], 'trigger_flags': ['C'], 'set_flag': 'DC'},
 ]
