@@ -631,6 +631,56 @@ def parse_metadata_log(xlsx_file, raw_filename=None, df_timestamps=None):
             except ValueError:
                 return None
 
+        # Helper: safely parse Date cells that may be true dates, YYYYMMDD ints, or strings
+        def _to_date(val):
+            """Return a datetime.date or None."""
+            if val is None:
+                return None
+
+            # datetime/date-like objects
+            if hasattr(val, 'date'):
+                try:
+                    return val.date()
+                except Exception:
+                    pass
+
+            # Numeric values (e.g., 20250618 or Excel serial day numbers)
+            if isinstance(val, (int, np.integer)):
+                val_int = int(val)
+                as_text = str(val_int)
+                if len(as_text) == 8:
+                    try:
+                        return datetime.strptime(as_text, '%Y%m%d').date()
+                    except ValueError:
+                        pass
+                if 20000 <= val_int <= 60000:
+                    try:
+                        return (datetime(1899, 12, 30) + timedelta(days=val_int)).date()
+                    except Exception:
+                        return None
+                return None
+
+            if isinstance(val, (float, np.floating)):
+                if pd.isna(val):
+                    return None
+                return _to_date(int(val))
+
+            # Text values
+            text = str(val).strip()
+            if not text or text.upper() in {'NULL', 'NAN'}:
+                return None
+
+            for fmt in ('%Y%m%d', '%Y-%m-%d', '%Y/%m/%d', '%m/%d/%Y', '%d/%m/%Y'):
+                try:
+                    return datetime.strptime(text, fmt).date()
+                except ValueError:
+                    continue
+
+            parsed = pd.to_datetime(text, errors='coerce')
+            if pd.notna(parsed):
+                return parsed.date()
+            return None
+
         # Helper: combine a date + time into a datetime, with next-day roll if needed
         def _combine(date_val, time_val, reference_time=None):
             """
@@ -640,11 +690,9 @@ def parse_metadata_log(xlsx_file, raw_filename=None, df_timestamps=None):
             """
             if date_val is None or time_val is None:
                 return None
-            # Normalise date_val to a date object
-            if hasattr(date_val, 'date'):
-                base_date = date_val.date()
-            else:
-                base_date = date_val
+            base_date = _to_date(date_val)
+            if base_date is None:
+                return None
             dt = datetime.combine(base_date, time_val)
             # Auto-roll: if time_out < time_in, the visit ended the next calendar day
             if reference_time is not None and time_val < reference_time:
@@ -660,7 +708,7 @@ def parse_metadata_log(xlsx_file, raw_filename=None, df_timestamps=None):
             if str(row.get('Event_type', '')).strip() != 'Site Visit':
                 continue
 
-            date_val  = row.get('Date')
+            date_val  = _to_date(row.get('Date'))
             time_in   = _to_time(row.get('Time-in'))
             time_out  = _to_time(row.get('Time-out'))
 
@@ -700,12 +748,14 @@ def parse_metadata_log(xlsx_file, raw_filename=None, df_timestamps=None):
         for row in rows:
             if str(row.get('Event_type', '')).strip() != 'Site Visit':
                 continue
-            date_val  = row.get('Date')
+            date_val  = _to_date(row.get('Date'))
             time_in   = _to_time(row.get('Time-in'))
             time_out  = _to_time(row.get('Time-out'))
             if date_val is None or time_in is None or time_out is None:
                 continue
-            row_date = date_val.date() if hasattr(date_val, 'date') else date_val
+            row_date = _to_date(date_val)
+            if row_date is None:
+                continue
 
             # Match by filename date (exact or within 2 days), or fall back to ts_max proximity
             matched = False
@@ -749,10 +799,12 @@ def parse_metadata_log(xlsx_file, raw_filename=None, df_timestamps=None):
             if target_date is not None:
                 candidates = []
                 for row in data_download_rows:
-                    date_val = row.get('Date')
+                    date_val = _to_date(row.get('Date'))
                     if date_val is None:
                         continue
-                    row_date = date_val.date() if hasattr(date_val, 'date') else date_val
+                    row_date = _to_date(date_val)
+                    if row_date is None:
+                        continue
                     day_diff = abs((row_date - target_date).days)
                     if day_diff <= 2:
                         candidates.append((day_diff, row))
@@ -762,20 +814,17 @@ def parse_metadata_log(xlsx_file, raw_filename=None, df_timestamps=None):
 
         if matched_download_row is not None:
             result['data_id'] = str(matched_download_row.get('Data/Visit/Script_ID', '') or '').strip() or None
-            matched_download_date = matched_download_row.get('Date')
+            matched_download_date = _to_date(matched_download_row.get('Date'))
 
         # --- 3. Find Script_ID from most recent 'Script Change' on or before the matched date ---
         script_rows = [
             r for r in rows
             if str(r.get('Event_type', '')).strip() == 'Script Change'
-            and r.get('Date') is not None
+            and _to_date(r.get('Date')) is not None
         ]
 
         if script_rows and matched_download_date is not None:
             # Normalise dates for comparison
-            def _to_date(v):
-                return v.date() if hasattr(v, 'date') else v
-
             download_date = _to_date(matched_download_date)
             # Keep only script changes on or before the matched date
             eligible = [r for r in script_rows if _to_date(r['Date']) <= download_date]

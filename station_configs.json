@@ -91,5 +91,20 @@
         "latitude": 53.7217,
         "longitude": -125.6417,
         "deployments": []
+    },
+    "02": {
+        "latitude": 53.7217,
+        "longitude": -125.6417,
+        "deployments": []
+    },
+    "02W008": {
+        "latitude": 53.9272,
+        "longitude": -123.2583,
+        "deployments": []
+    },
+    "02FW008": {
+        "latitude": 53.7217,
+        "longitude": -125.6417,
+        "deployments": []
     }
 }
