@@ -3326,6 +3326,46 @@ def main():
                         default=["Daily", "Weekly"],
                         key="save_graphs_freq"
                     )
+                    ts_available_save = (
+                        'TIMESTAMP' in df_save.columns
+                        and pd.to_datetime(df_save['TIMESTAMP'], errors='coerce').notna().any()
+                    )
+                    daily_range_enabled = False
+                    daily_range_start = None
+                    daily_range_end = None
+                    if ts_available_save:
+                        ts_dates_save = (
+                            pd.to_datetime(df_save['TIMESTAMP'], errors='coerce')
+                            .dropna()
+                            .dt.date
+                        )
+                        if not ts_dates_save.empty:
+                            min_date_save = ts_dates_save.min()
+                            max_date_save = ts_dates_save.max()
+                            daily_range_enabled = st.checkbox(
+                                "Limit Daily outputs to date range",
+                                value=False,
+                                key="save_graphs_daily_range_enable",
+                                help="Applies to Daily trend outputs and Daily % by variable outputs."
+                            )
+                            daily_range_values = st.date_input(
+                                "Daily output date range",
+                                value=(min_date_save, max_date_save),
+                                min_value=min_date_save,
+                                max_value=max_date_save,
+                                key="save_graphs_daily_date_range"
+                            )
+                            if isinstance(daily_range_values, (tuple, list)):
+                                if len(daily_range_values) >= 2:
+                                    daily_range_start, daily_range_end = daily_range_values[0], daily_range_values[1]
+                                elif len(daily_range_values) == 1:
+                                    daily_range_start = daily_range_values[0]
+                                    daily_range_end = daily_range_values[0]
+                            else:
+                                daily_range_start = daily_range_values
+                                daily_range_end = daily_range_values
+                            if daily_range_start and daily_range_end and daily_range_start > daily_range_end:
+                                daily_range_start, daily_range_end = daily_range_end, daily_range_start
                     default_save_dir = os.path.join(output_dir, "saved_graphs")
                     save_dir = st.text_input(
                         "Save directory",
@@ -3344,6 +3384,23 @@ def main():
                             filtered_save = flags_long_save[
                                 flags_long_save['flag'].isin(selected_flags_save)
                             ].copy()
+                            daily_filtered_save = filtered_save
+                            daily_range_label = "full range"
+                            if (
+                                daily_range_enabled
+                                and ts_available_save
+                                and daily_range_start is not None
+                                and daily_range_end is not None
+                            ):
+                                ts_save = pd.to_datetime(df_save['TIMESTAMP'], errors='coerce')
+                                start_ts = pd.Timestamp(daily_range_start)
+                                end_ts = pd.Timestamp(daily_range_end) + timedelta(days=1) - timedelta(microseconds=1)
+                                mask_daily_range = ts_save.between(start_ts, end_ts, inclusive='both')
+                                daily_row_idx = set(df_save.index[mask_daily_range])
+                                daily_filtered_save = filtered_save[
+                                    filtered_save['row_idx'].isin(daily_row_idx)
+                                ].copy()
+                                daily_range_label = f"{daily_range_start} to {daily_range_end}"
 
                             if filtered_save.empty:
                                 st.warning("No matching flag rows were found for the selected flags.")
@@ -3429,11 +3486,14 @@ def main():
 
                                 # Daily % by variable and flag.
                                 daily_var_pct = compute_daily_variable_flag_percent_table(
-                                    filtered_flags=filtered_save,
+                                    filtered_flags=daily_filtered_save,
                                     df_viz=df_save
                                 )
                                 if daily_var_pct.empty:
-                                    st.info("No timestamped rows available for daily variable-percentage graph.")
+                                    if daily_range_enabled:
+                                        st.info(f"No timestamped rows available for daily variable-percentage graph in range {daily_range_label}.")
+                                    else:
+                                        st.info("No timestamped rows available for daily variable-percentage graph.")
                                 else:
                                     daily_var_pct = daily_var_pct[
                                         daily_var_pct['variable'].isin(selected_variables_save)
@@ -3550,16 +3610,22 @@ def main():
                                         created_paths.extend(png_paths)
 
                                 for freq_label in freq_save:
+                                    freq_filtered_flags = daily_filtered_save if freq_label == "Daily" else filtered_save
                                     total_t, by_flag_t = compute_flag_trend_tables(
-                                        filtered_flags=filtered_save,
+                                        filtered_flags=freq_filtered_flags,
                                         df_viz=df_save,
                                         freq_code=freq_map_save[freq_label]
                                     )
                                     if total_t.empty:
-                                        st.info(f"No timestamped rows available for {freq_label} trend.")
+                                        if freq_label == "Daily" and daily_range_enabled:
+                                            st.info(f"No timestamped rows available for {freq_label} trend in range {daily_range_label}.")
+                                        else:
+                                            st.info(f"No timestamped rows available for {freq_label} trend.")
                                         continue
 
                                     title = f"{base_name} - {freq_label} Flag Trend"
+                                    if freq_label == "Daily" and daily_range_enabled:
+                                        title = f"{base_name} - {freq_label} Flag Trend ({daily_range_label})"
                                     png_bytes = build_trend_png(total_t, by_flag_t, title)
                                     freq_key = freq_label.lower()
 
