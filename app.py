@@ -1263,6 +1263,71 @@ def build_daily_variable_flag_pct_png(pct_pivot, title):
     png_buffer.seek(0)
     return png_buffer.getvalue()
 
+def build_15min_variable_flag_overlay_png(df_viz, filtered_flags, variable, title, start_ts=None, end_ts=None):
+    """
+    Render a 15-minute variable time series with flagged points overlaid by flag code.
+    Returns PNG bytes, or None when no plottable rows exist in the selected range.
+    """
+    if (
+        df_viz is None
+        or filtered_flags is None
+        or 'TIMESTAMP' not in df_viz.columns
+        or variable not in df_viz.columns
+    ):
+        return None
+
+    ts = pd.to_datetime(df_viz['TIMESTAMP'], errors='coerce')
+    vals = pd.to_numeric(df_viz[variable], errors='coerce')
+    base = pd.DataFrame({'TIMESTAMP': ts, 'Value': vals}, index=df_viz.index)
+    base = base.dropna(subset=['TIMESTAMP', 'Value'])
+
+    if start_ts is not None:
+        base = base[base['TIMESTAMP'] >= pd.Timestamp(start_ts)]
+    if end_ts is not None:
+        base = base[base['TIMESTAMP'] <= pd.Timestamp(end_ts)]
+    if base.empty:
+        return None
+
+    points = filtered_flags[filtered_flags['variable'] == variable].copy()
+    points = points[points['row_idx'].isin(base.index)]
+    if not points.empty:
+        base_with_idx = base.reset_index().rename(columns={'index': 'row_idx'})
+        points = points.merge(
+            base_with_idx[['row_idx', 'TIMESTAMP', 'Value']],
+            on='row_idx',
+            how='left'
+        ).dropna(subset=['TIMESTAMP', 'Value'])
+
+    fig, ax = plt.subplots(figsize=(13, 5.5), constrained_layout=True)
+    ax.plot(base['TIMESTAMP'], base['Value'], color="#5a5a5a", linewidth=1.1, label=variable)
+
+    if not points.empty:
+        cmap = plt.cm.get_cmap('tab10')
+        for i, flag_code in enumerate(sorted(points['flag'].dropna().astype(str).unique().tolist())):
+            pf = points[points['flag'] == flag_code]
+            if pf.empty:
+                continue
+            ax.scatter(
+                pf['TIMESTAMP'],
+                pf['Value'],
+                s=18,
+                alpha=0.85,
+                color=cmap(i % 10),
+                label=format_flag_label(flag_code)
+            )
+        ax.legend(loc="upper right", fontsize=8, title="Flag")
+
+    ax.set_title(title)
+    ax.set_xlabel("Time (15-min)")
+    ax.set_ylabel(variable)
+    ax.grid(alpha=0.3)
+
+    png_buffer = io.BytesIO()
+    fig.savefig(png_buffer, format="png", dpi=180)
+    plt.close(fig)
+    png_buffer.seek(0)
+    return png_buffer.getvalue()
+
 # --- UI Components ---
 
 def mapping_editor_ui():
@@ -3330,6 +3395,8 @@ def main():
                         'TIMESTAMP' in df_save.columns
                         and pd.to_datetime(df_save['TIMESTAMP'], errors='coerce').notna().any()
                     )
+                    min_date_save = None
+                    max_date_save = None
                     daily_range_enabled = False
                     daily_range_start = None
                     daily_range_end = None
@@ -3366,6 +3433,45 @@ def main():
                                 daily_range_end = daily_range_values
                             if daily_range_start and daily_range_end and daily_range_start > daily_range_end:
                                 daily_range_start, daily_range_end = daily_range_end, daily_range_start
+
+                    solar_overlay_options = [
+                        c for c in ['SWalbedo_Avg', 'SWin_Avg', 'SWout_Avg']
+                        if c in df_save.columns
+                    ]
+                    selected_solar_overlay_vars = st.multiselect(
+                        "Solar variables for 15-min flag overlay",
+                        options=solar_overlay_options,
+                        default=solar_overlay_options,
+                        key="save_graphs_solar_overlay_vars",
+                        help="Plots 15-minute values with flagged points overlaid."
+                    )
+                    overlay_range_enabled = False
+                    overlay_range_start = None
+                    overlay_range_end = None
+                    if min_date_save is not None and max_date_save is not None:
+                        overlay_range_enabled = st.checkbox(
+                            "Limit 15-min solar overlay to date range",
+                            value=True,
+                            key="save_graphs_overlay_range_enable",
+                        )
+                        overlay_range_values = st.date_input(
+                            "15-min solar overlay date range",
+                            value=(min_date_save, max_date_save),
+                            min_value=min_date_save,
+                            max_value=max_date_save,
+                            key="save_graphs_overlay_date_range"
+                        )
+                        if isinstance(overlay_range_values, (tuple, list)):
+                            if len(overlay_range_values) >= 2:
+                                overlay_range_start, overlay_range_end = overlay_range_values[0], overlay_range_values[1]
+                            elif len(overlay_range_values) == 1:
+                                overlay_range_start = overlay_range_values[0]
+                                overlay_range_end = overlay_range_values[0]
+                        else:
+                            overlay_range_start = overlay_range_values
+                            overlay_range_end = overlay_range_values
+                        if overlay_range_start and overlay_range_end and overlay_range_start > overlay_range_end:
+                            overlay_range_start, overlay_range_end = overlay_range_end, overlay_range_start
                     default_save_dir = os.path.join(output_dir, "saved_graphs")
                     save_dir = st.text_input(
                         "Save directory",
@@ -3608,6 +3714,69 @@ def main():
                                         if not png_paths:
                                             st.info("No daily variable-percentage PNGs were generated for the selected variables.")
                                         created_paths.extend(png_paths)
+
+                                # 15-min solar value + flagged-point overlays.
+                                if selected_solar_overlay_vars:
+                                    overlay_start_ts = None
+                                    overlay_end_ts = None
+                                    overlay_range_label = "full range"
+                                    if (
+                                        overlay_range_enabled
+                                        and overlay_range_start is not None
+                                        and overlay_range_end is not None
+                                    ):
+                                        overlay_start_ts = pd.Timestamp(overlay_range_start)
+                                        overlay_end_ts = (
+                                            pd.Timestamp(overlay_range_end)
+                                            + timedelta(days=1)
+                                            - timedelta(microseconds=1)
+                                        )
+                                        overlay_range_label = f"{overlay_range_start} to {overlay_range_end}"
+
+                                    overlay_paths = []
+                                    for solar_var in selected_solar_overlay_vars:
+                                        solar_title = f"{base_name} - {solar_var} (15-min) with Flags"
+                                        if overlay_range_enabled:
+                                            solar_title = f"{solar_title} ({overlay_range_label})"
+                                        solar_png_bytes = build_15min_variable_flag_overlay_png(
+                                            df_viz=df_save,
+                                            filtered_flags=filtered_save,
+                                            variable=solar_var,
+                                            title=solar_title,
+                                            start_ts=overlay_start_ts,
+                                            end_ts=overlay_end_ts
+                                        )
+                                        if solar_png_bytes is None:
+                                            st.info(f"No plottable 15-min data for {solar_var} in selected range.")
+                                            continue
+
+                                        solar_slug = re.sub(r"[^A-Za-z0-9]+", "_", str(solar_var)).strip("_") or "solar"
+                                        solar_png_path = os.path.join(
+                                            save_dir,
+                                            f"{base_name}_15min_flag_overlay_{solar_slug}_{run_stamp}.png"
+                                        )
+                                        with open(solar_png_path, "wb") as f:
+                                            f.write(solar_png_bytes)
+
+                                        st.subheader(f"15-min Solar Overlay: {solar_var}")
+                                        st.image(
+                                            solar_png_bytes,
+                                            caption=f"{solar_var} with flagged points ({overlay_range_label})",
+                                            use_container_width=True
+                                        )
+                                        st.download_button(
+                                            label=f"Download {solar_var} 15-min Overlay (PNG)",
+                                            data=solar_png_bytes,
+                                            file_name=os.path.basename(solar_png_path),
+                                            mime="image/png",
+                                            key=f"download_15min_overlay_{solar_slug}_{run_stamp}"
+                                        )
+                                        overlay_paths.append(solar_png_path)
+
+                                    if overlay_paths:
+                                        created_paths.extend(overlay_paths)
+                                    else:
+                                        st.info("No 15-min solar overlay plots were generated.")
 
                                 for freq_label in freq_save:
                                     freq_filtered_flags = daily_filtered_save if freq_label == "Daily" else filtered_save
