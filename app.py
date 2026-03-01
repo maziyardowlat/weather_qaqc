@@ -217,7 +217,7 @@ DEPENDENCY_CONFIG = [
     {'target': 'SlrTF_MJ_Tot', 'sources': ['SlrFD_W_Avg'],                      'trigger_flags': ['C', 'T', 'DC'], 'set_flag': 'DC'},
     # SlrTF gets DF if SlrFD_W_Avg is R or E
     {'target': 'SlrTF_MJ_Tot', 'sources': ['SlrFD_W_Avg'],                      'trigger_flags': ['R', 'E', 'M'], 'set_flag': 'DF'},
-    # CHECK WITH STEPHEN - SlrTF inherits Z from SlrFD_W_Avg
+    # SlrTF inherits Z from SlrFD_W_Avg
     {'target': 'SlrTF_MJ_Tot', 'sources': ['SlrFD_W_Avg'],                      'trigger_flags': ['Z'], 'set_flag': 'Z'},
 
     # ClimaVUE50 — wind direction and gust invalid when wind speed == 0 (NV flag applied in pipeline)
@@ -239,7 +239,7 @@ DEPENDENCY_CONFIG = [
     {'target': 'TCDT_Avg',     'sources': ['DT_Avg'],                            'trigger_flags': ['R', 'E', 'M'], 'set_flag': 'DF'},
     # Q (quality) affects TCDT — DC if Q is C (uncertain echo)
     {'target': 'TCDT_Avg',     'sources': ['Q_Avg'],                             'trigger_flags': ['C'], 'set_flag': 'DC'},
-    # CHECK WITH STEPHEN: Q affects TCDT — DF if Q is R, E, or DF (bad/no echo)
+    # Q affects TCDT — DF if Q is R, E, or DF (bad/no echo)
     {'target': 'TCDT_Avg',     'sources': ['Q_Avg'],                            'trigger_flags': ['R', 'E', 'M'], 'set_flag': 'DF'},
     # AirT affects TCDT (temperature correction) — DC if AirT is DC
     {'target': 'TCDT_Avg',     'sources': ['AirT_C_Avg'],                        'trigger_flags': ['DC'], 'set_flag': 'DC'},
@@ -260,7 +260,7 @@ DEPENDENCY_CONFIG = [
     {'target': 'SWnet_Avg',    'sources': ['SWin_Avg', 'SWout_Avg'],             'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
     # SWnet gets DC if SWin or SWout is C (per Notes: "Flag DC if SWout_Avg OR SWin_Avg == C")
     {'target': 'SWnet_Avg',    'sources': ['SWin_Avg', 'SWout_Avg'],             'trigger_flags': ['C'], 'set_flag': 'DC'},
-    # CHECK WITH STEPHEN - SWnet inherits Z from SWin
+    # SWnet inherits Z from SWin
     {'target': 'SWnet_Avg',    'sources': ['SWin_Avg'],                          'trigger_flags': ['Z'], 'set_flag': 'Z'},
     # SWout Z is applied directly by nighttime sign checks.
     # LWin/LWout affect LWnet — DF if R or E
@@ -272,7 +272,7 @@ DEPENDENCY_CONFIG = [
     {'target': 'SWalbedo_Avg', 'sources': ['SWin_Avg', 'SWout_Avg'],             'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
     # Albedo gets DC if SWin or SWout is C (per Notes: "Flag DC if SWout_Avg OR SWin_Avg == C")
     {'target': 'SWalbedo_Avg', 'sources': ['SWin_Avg', 'SWout_Avg'],             'trigger_flags': ['C'], 'set_flag': 'DC'},
-    # CHECK WITH STEPHEM - Albedo inherits Z from SWin
+    # Albedo inherits Z from SWin
     {'target': 'SWalbedo_Avg', 'sources': ['SWin_Avg'],                          'trigger_flags': ['Z'], 'set_flag': 'Z'},
     # DZ is applied programmatically in the pipeline (SWin < 20 W/m²), not via dependency propagation
 
@@ -282,8 +282,8 @@ DEPENDENCY_CONFIG = [
     {'target': 'NR_Avg',       'sources': ['SWin_Avg', 'SWout_Avg', 'LWin_Avg', 'LWout_Avg'], 'trigger_flags': ['C'], 'set_flag': 'DC'},
 ]
 
-# S- CHECK WITH STEPHEN: olar columns that get the nighttime Z-flag check
-# Swnet does NOT get the Z from this loop, but gets it from inheritance via Swin
+# Solar columns that get the nighttime Z-flag check.
+# SWnet does NOT get Z from this loop — it inherits Z from SWin via dependency.
 SOLAR_COLUMNS = ['SlrFD_W_Avg', 'SWin_Avg', 'SWout_Avg']
 
 # Canonical sensor column names with accepted alias spellings.
@@ -2032,7 +2032,7 @@ def main():
                             # Others ffill/bfill
                             for mc in meta_cols:
                                 if mc in df_final.columns:
-                                    df_final[mc] = df_final[mc].fillna(method='ffill').fillna(method='bfill')
+                                    df_final[mc] = df_final[mc].ffill().bfill()
                             
                             # Flags Logic
                             # 1. Create Flags
@@ -2896,7 +2896,7 @@ def main():
                     ws = pd.to_numeric(df['WS_ms_Avg'], errors='coerce')
                     mask_no_wind = ws.notna() & (ws == 0)
                     if mask_no_wind.any():
-                        fc = f"{wind_dir_col}_Flag"
+                        fc = 'WindDir_Flag'
                         if fc not in df.columns:
                             df[fc] = ""
                         _append_flag(df, fc, mask_no_wind, 'NV')
@@ -2963,7 +2963,6 @@ def main():
                                     # Per RefSensorThresholds notes:
                                     #   SlrFD_W_Avg: Z when > 0 at night
                                     #   SWin_Avg/SWout_Avg: Z when < 0 at night
-                                    #   HEAR BACK FROM STEPHEN WITH THIS.
                                     if scol == 'SlrFD_W_Avg':
                                         mask_z = vals > 0.0001
                                     else:
@@ -2977,7 +2976,28 @@ def main():
                                         mask_z_rows.loc[idx] = True
                                         _append_flag(df, fc, mask_z_rows, 'Z')
 
-                # 4. System-level propagation: BV (battery voltage R) and PT (panel temp R)
+                # 4. E flag — sensor-specific error values (-9999 or -9990)
+                # Per Notes column: E if -9999 (or -9990 for WS_ms_Avg)
+                # These are logger-encoded error codes that indicate sensor failure.
+                # Must run BEFORE BV/PT propagation so that error-value rows have
+                # their flags correctly set to E before system-level propagation.
+                ERROR_VALUES = {-9999, -9990, -9998}
+                for col in qc_cols:
+                    if col not in df.columns:
+                        continue
+                    flag_col = f"{col}_Flag"
+                    if flag_col not in df.columns:
+                        df[flag_col] = ""
+                    raw_vals = pd.to_numeric(df[col], errors='coerce')
+                    mask_err_val = raw_vals.isin(ERROR_VALUES)
+                    # Per RefSensorThresholds notes for DT: "E if 0 (no echo detected)"
+                    if col == 'DT_Avg':
+                        mask_err_val = mask_err_val | raw_vals.eq(0)
+                    if mask_err_val.any():
+                        # E is exclusive: if present, suppress all other flags in this cell.
+                        df.loc[mask_err_val, flag_col] = "E"
+
+                # 5. System-level propagation: BV (battery voltage R) and PT (panel temp R)
                 # When BattV_Avg or PTemp_C_Avg is flagged R, all other sensor columns
                 # get BV or PT appended to their flag (per Flags_Depend in RefSensorThresholds).
                 # This is done programmatically because it affects every column.
@@ -3000,7 +3020,7 @@ def main():
                         if col.endswith('_Flag') and col not in skip_cols:
                             _append_flag(df, col, mask_src, prop_flag)
 
-                # 5. Critical Flags (PT — panel temperature flagged R)
+                # 6. Critical Flags (PT — panel temperature flagged R)
                 # If PTemp is flagged R, warn the user (data may be unreliable system-wide)
                 for pt_col in ['PTemp_C_Avg_Flag', 'Ptmp_C_Avg_Flag']:
                     if pt_col in df.columns:
@@ -3009,27 +3029,8 @@ def main():
                         if mask_crit.any():
                             st.warning(f"⚠️ Panel Temperature (PT) flagged R in {mask_crit.sum()} records — system-wide data quality may be affected.")
 
-
-                # 6. E flag — sensor-specific error values (-9999 or -9990)
-                # Per Notes column: E if -9999 (or -9990 for WS_ms_Avg)
-                # These are logger-encoded error codes that indicate sensor failure.
-                ERROR_VALUES = {-9999, -9990, -9998}
-                for col in qc_cols:
-                    if col not in df.columns:
-                        continue
-                    flag_col = f"{col}_Flag"
-                    if flag_col not in df.columns:
-                        df[flag_col] = ""
-                    raw_vals = pd.to_numeric(df[col], errors='coerce')
-                    mask_err_val = raw_vals.isin(ERROR_VALUES)
-                    # Per RefSensorThresholds notes for DT: "E if 0 (no echo detected)"
-                    if col == 'DT_Avg':
-                        mask_err_val = mask_err_val | raw_vals.eq(0)
-                    if mask_err_val.any():
-                        # E is exclusive: if present, suppress all other flags in this cell.
-                        df.loc[mask_err_val, flag_col] = "E"
-
                 # 6.5 RECORD missingness guard (M) in QA/QC stage.
+                # (Numbering note: E moved to step 4, BV/PT to step 5, PT warning to step 6)
                 # Keeps behavior consistent even if the source concatenated file
                 # was produced before ingestion-stage RECORD M logic existed.
                 if "RECORD" in df.columns:
