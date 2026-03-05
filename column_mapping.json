@@ -98,7 +98,8 @@
             "wind",
             "WS_ms",
             "Wind_Speed",
-            "WS_ms_Avg"
+            "WS_ms_Avg",
+            "WS_ms_S_WVT"
         ],
         "unit": "meters/second",
         "unit_aliases": [
@@ -110,7 +111,8 @@
         "aliases": [
             "wdir",
             "Wind_Dir",
-            "WindDir"
+            "WindDir",
+            "WindDir_D1_WVT"
         ],
         "unit": "degrees",
         "unit_aliases": [
@@ -123,7 +125,8 @@
             "windM",
             "MaxWS",
             "Max_Wind_Speed",
-            "MaxWS_ms_Avg"
+            "MaxWS_ms_Avg",
+            "MaxWS_ms_Max"
         ],
         "unit": "meters/second",
         "unit_aliases": [
@@ -372,16 +375,15 @@
             "km"
         ]
     },
-    "WindDir_SD1_WVT": {
+    "WindDir_SD1": {
         "aliases": [
-            "wdir_sd",
-            "Wind_Dir_SD",
+            "WindDir_SD1_WVT",
             "WindDir_SD1_WVT"
         ],
-        "unit": "degrees",
+        "unit": "m/s",
         "unit_aliases": [
-            "degrees",
-            "deg"
+            "m/s",
+            "M/S"
         ]
     },
     "SRTmp_C_Avg": {
@@ -408,16 +410,6 @@
             "Deg C",
             "C",
             "degC"
-        ]
-    },
-    "asdf": {
-        "aliases": [
-            "asdfacdscsda",
-            "spiderman"
-        ],
-        "unit": "adc",
-        "unit_aliases": [
-            "asdf"
         ]
     }
 }

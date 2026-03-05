@@ -1,6 +1,6 @@
 {
     "ClimaVue50": {
-        "sensor_height": 251,
+        "sensor_height": 337,
         "thresholds": {
             "AirT_C_Avg": {
                 "r_min": -50.0,
@@ -201,7 +201,7 @@
         }
     },
     "System": {
-        "sensor_height": 150,
+        "sensor_height": 175,
         "thresholds": {
             "BattV_Avg": {
                 "r_min": 9.6,
