@@ -360,6 +360,43 @@
             "W/m^2"
         ]
     },
+    "Dist_km_Max": {
+        "aliases": [
+            "strikeD_max",
+            "Lightning_Dist_Max",
+            "Dist_km_Max"
+        ],
+        "unit": "kilometers",
+        "unit_aliases": [
+            "kilometers",
+            "km"
+        ]
+    },
+    "WindDir_SD1_WVT": {
+        "aliases": [
+            "wdir_sd",
+            "Wind_Dir_SD",
+            "WindDir_SD1_WVT"
+        ],
+        "unit": "degrees",
+        "unit_aliases": [
+            "degrees",
+            "deg"
+        ]
+    },
+    "SRTmp_C_Avg": {
+        "aliases": [
+            "srtmp",
+            "SR_Temp",
+            "SRTmp_C_Avg"
+        ],
+        "unit": "Deg C",
+        "unit_aliases": [
+            "Deg C",
+            "C",
+            "degC"
+        ]
+    },
     "Gtmp_Avg": {
         "aliases": [
             "stmp2",

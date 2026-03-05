@@ -232,6 +232,12 @@ DEPENDENCY_CONFIG = [
     # ClimaVUE50 — lightning distance NV is applied directly in pipeline
     # when Strikes_Tot <= 0 (per notes: Dist valid only if strikes > 0).
 
+    # ClimaVUE50 — max lightning distance depends on Strikes_Tot
+    {'target': 'Dist_km_Max',  'sources': ['Strikes_Tot'],                       'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
+
+    # ClimaVUE50 — wind direction standard deviation depends on WindDir
+    {'target': 'WindDir_SD1_WVT', 'sources': ['WindDir'],                        'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
+
     # -----------------------------------------------------------------------
     # SR50 Sonic Ranger
     # -----------------------------------------------------------------------
@@ -252,6 +258,14 @@ DEPENDENCY_CONFIG = [
     {'target': 'DBTCDT_Avg',   'sources': ['TCDT_Avg'],                          'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
     # DBTCDT gets DC if TCDT is DC (per Notes: "Flag DC if TCDT == DC")
     {'target': 'DBTCDT_Avg',   'sources': ['TCDT_Avg'],                          'trigger_flags': ['DC'], 'set_flag': 'DC'},
+
+    # -----------------------------------------------------------------------
+    # SR50AT Sonic Ranger (with built-in temperature sensor)
+    # -----------------------------------------------------------------------
+    # SRTmp (built-in temp) affects TCDT — DC if SRTmp is DC
+    {'target': 'TCDT_Avg',     'sources': ['SRTmp_C_Avg'],                       'trigger_flags': ['DC'], 'set_flag': 'DC'},
+    # SRTmp affects TCDT — DF if SRTmp is R, E, or DF
+    {'target': 'TCDT_Avg',     'sources': ['SRTmp_C_Avg'],                       'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
 
     # -----------------------------------------------------------------------
     # SN-500 Net Radiometer
