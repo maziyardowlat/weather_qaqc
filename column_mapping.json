@@ -139,7 +139,8 @@
             "tmp",
             "AirTC",
             "AirTemp",
-            "AirT_C_Avg"
+            "AirT_C_Avg",
+            "cv_atmp_310_Avg"
         ],
         "unit": "Deg C",
         "unit_aliases": [
@@ -356,7 +357,8 @@
         "aliases": [
             "nr",
             "Net_Radiation",
-            "NR_Avg"
+            "NR_Avg",
+            "net_rad_Avg"
         ],
         "unit": "W/m^2",
         "unit_aliases": [
@@ -471,7 +473,8 @@
         "aliases": [
             "sv_snow",
             "SV_Snow_Depth",
-            "SV_DBTCDT_Avg"
+            "SV_DBTCDT_Avg",
+            "snowdepth_Avg"
         ],
         "unit": "cm",
         "unit_aliases": [
@@ -483,7 +486,8 @@
         "aliases": [
             "sv_tmp",
             "SV_Temp",
-            "SV_Tmp_Avg"
+            "SV_Tmp_Avg",
+            "SV_IntTemp_Avg"
         ],
         "unit": "Deg C",
         "unit_aliases": [
@@ -495,7 +499,8 @@
     "SV_RH": {
         "aliases": [
             "sv_rh",
-            "SV_RH"
+            "SV_RH",
+            "SV_IntRH_Avg"
         ],
         "unit": "%",
         "unit_aliases": [
@@ -506,7 +511,8 @@
     "SV_Pitch": {
         "aliases": [
             "sv_pitch",
-            "SV_Pitch"
+            "SV_Pitch",
+            "SV_Pitch_Avg"
         ],
         "unit": "degrees",
         "unit_aliases": [
@@ -517,7 +523,8 @@
     "SV_Roll": {
         "aliases": [
             "sv_roll",
-            "SV_Roll"
+            "SV_Roll",
+            "SV_Roll_Avg"
         ],
         "unit": "degrees",
         "unit_aliases": [
@@ -528,7 +535,8 @@
     "SV_Volt": {
         "aliases": [
             "sv_volt",
-            "SV_Volt"
+            "SV_Volt",
+            "SV_SupVolt_Avg"
         ],
         "unit": "Volts",
         "unit_aliases": [
@@ -539,7 +547,8 @@
     "SV_Freq": {
         "aliases": [
             "sv_freq",
-            "SV_Freq"
+            "SV_Freq",
+            "SV_ResFreq_Avg"
         ],
         "unit": "kHz",
         "unit_aliases": [
