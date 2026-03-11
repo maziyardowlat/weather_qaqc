@@ -2160,6 +2160,14 @@ def main():
                                 # Skip flag columns and RECORD (handled separately)
                                 if col.endswith('_Flag') or col == "RECORD":
                                     continue
+                                # Timestamp-like columns should not have flag columns
+                                # (same treatment as TIMESTAMP).
+                                if col in TIMESTAMP_LIKE_COLUMNS:
+                                    df_final[col] = pd.to_datetime(df_final[col], errors='coerce')
+                                    ts_flag_col = f"{col}_Flag"
+                                    if ts_flag_col in df_final.columns:
+                                        df_final = df_final.drop(columns=[ts_flag_col])
+                                    continue
 
                                 flag_col = f"{col}_Flag"
                                 # Don't overwrite existing flags (e.g. C from file processing)
@@ -2168,8 +2176,7 @@ def main():
                                 else:
                                     df_final[flag_col] = df_final[flag_col].fillna("").astype(str)
                                 
-                                # ERR Logic
-                                # Convert to numeric
+                                # ERR Logic (numeric sensor channels only).
                                 original = df_final[col].copy()
                                 numeric = pd.to_numeric(df_final[col], errors='coerce')
                                 
@@ -2223,6 +2230,12 @@ def main():
 
                                     except Exception as e:
                                         st.warning(f"Invalid Field Visit Time: {f_in} – {f_out}: {e}")
+
+                            # Ensure timestamp-like TMx fields never carry flag columns.
+                            for ts_col in TIMESTAMP_LIKE_COLUMNS:
+                                ts_fc = f"{ts_col}_Flag"
+                                if ts_fc in df_final.columns:
+                                    df_final = df_final.drop(columns=[ts_fc])
 
                             # RECORD missingness should also be marked M.
                             if 'RECORD' in df_final.columns:
@@ -2370,7 +2383,7 @@ def main():
                             max_value=500,
                             key=f"sensor_height_{grp_name}"
                         )
-                        st.caption("Used for DT_Avg and DBTCDT_Avg threshold calculations.")
+                        st.caption("Used for sensor-height limits on DT_Avg, DBTCDT_Avg, and SV_DBTCDT_Avg.")
                         st.divider()
                         # Select Columns
                         # Get all available columns from mapping for suggestions
@@ -2427,6 +2440,12 @@ def main():
                                     (isinstance(cur_r_max, float) and np.isnan(cur_r_max))
                                 ):
                                     cur_r_max = float(grp_sensor_height) - 50.0
+                                # Same behavior for SnowVue depth (H-40).
+                                if c == 'SV_DBTCDT_Avg' and (
+                                    cur_r_max == '' or cur_r_max is None or
+                                    (isinstance(cur_r_max, float) and np.isnan(cur_r_max))
+                                ):
+                                    cur_r_max = float(grp_sensor_height) - 40.0
                                 
                                 edit_data.append({
                                     "Column": c,
@@ -2440,7 +2459,7 @@ def main():
                             column_config = {
                                 "R Max": st.column_config.NumberColumn(
                                     "R Max",
-                                    help="DBTCDT_Avg default is Sensor Height - 50.",
+                                    help="Height-based defaults: DBTCDT_Avg = H-50, SV_DBTCDT_Avg = H-40.",
                                 )
                             }
                             
@@ -2468,6 +2487,9 @@ def main():
                                     # Keep DBTCDT_Avg physically bounded even when left blank.
                                     if row['Column'] == 'DBTCDT_Avg' and r_max_val is None:
                                         r_max_val = float(grp_sensor_height) - 50.0
+                                    # Keep SV_DBTCDT_Avg physically bounded even when left blank.
+                                    if row['Column'] == 'SV_DBTCDT_Avg' and r_max_val is None:
+                                        r_max_val = float(grp_sensor_height) - 40.0
                                     new_thresholds[row['Column']] = {
                                         'r_min': _to_num_or_none(row.get('R Min')),
                                         'r_max': r_max_val,
@@ -2652,6 +2674,8 @@ def main():
                             act_c_max = resolve_height_formula_token(grp_spec.get('c_max', def_c_max), grp_sensor_height)
                             if k == 'DBTCDT_Avg' and act_r_max is None:
                                 act_r_max = float(grp_sensor_height) - 50.0
+                            if k == 'SV_DBTCDT_Avg' and act_r_max is None:
+                                act_r_max = float(grp_sensor_height) - 40.0
                         elif isinstance(grp_spec, (list, tuple)) and len(grp_spec) >= 2:
                             act_r_min, act_r_max = grp_spec[0], grp_spec[1]
                             act_c_min, act_c_max = def_c_min, def_c_max
@@ -2800,9 +2824,10 @@ def main():
                 for col in qc_cols:
                     # Skip timestamp-like columns (no numeric thresholds apply)
                     if col in TIMESTAMP_LIKE_COLUMNS:
-                        flag_col = f"{col}_Flag"
-                        if flag_col not in df.columns:
-                            df[flag_col] = ""
+                        df[col] = pd.to_datetime(df[col], errors='coerce')
+                        ts_flag_col = f"{col}_Flag"
+                        if ts_flag_col in df.columns:
+                            df = df.drop(columns=[ts_flag_col])
                         continue
 
                     # --- Determine base R and C limits from SENSOR_THRESHOLDS ---
@@ -3061,13 +3086,6 @@ def main():
                                 _append_flag(df, fc_mw, mask_no_wind, 'NV')
                                 break  # only one variant will be present
 
-                        # MaxWS_ms_TMx (time of max wind gust) NV when wind speed is 0
-                        if 'MaxWS_ms_TMx' in df.columns:
-                            fc_tmx = 'MaxWS_ms_TMx_Flag'
-                            if fc_tmx not in df.columns:
-                                df[fc_tmx] = ""
-                            _append_flag(df, fc_tmx, mask_no_wind, 'NV')
-
                 # Lightning-distance validity flag:
                 # Dist_km_Avg is valid only when Strikes_Tot > 0.
                 # Apply NV directly to Dist_km_Avg when Strikes_Tot == 0.
@@ -3151,6 +3169,8 @@ def main():
                 ERROR_VALUES = {-9999, -9990, -9998}
                 for col in qc_cols:
                     if col not in df.columns:
+                        continue
+                    if col in TIMESTAMP_LIKE_COLUMNS:
                         continue
                     flag_col = f"{col}_Flag"
                     if flag_col not in df.columns:
@@ -3257,14 +3277,19 @@ def main():
                 # 9. Dependencies — propagate flags from source to target columns
                 for dep in DEPENDENCY_CONFIG:
                    target = _resolve_dep_col(df, dep['target'])
-                   if not target: continue
+                   if not target or target in TIMESTAMP_LIKE_COLUMNS:
+                       continue
                    tfc = f"{target}_Flag"
+                   if tfc not in df.columns:
+                       continue
 
                    mask_fail = pd.Series(False, index=df.index)
                    for src in dep['sources']:
                        src_col = _resolve_dep_col(df, src)
                        if not src_col: continue
                        sfc = f"{src_col}_Flag"
+                       if sfc not in df.columns:
+                           continue
                        curr_s = df[sfc].fillna("").astype(str)
                        pat = "|".join([rf"\b{f}\b" for f in dep['trigger_flags']])
                        mask_fail = mask_fail | curr_s.str.contains(pat, regex=True)
@@ -3307,6 +3332,12 @@ def main():
                             mask_p = (curr_f == "") & (vals.notna()) & (vals.astype(str).str.strip() != '') & (vals.astype(str).str.lower() != 'nan')
                             if mask_p.any():
                                 df.loc[mask_p, col] = 'P'
+
+                # Ensure timestamp-like TMx fields never carry flag columns.
+                for ts_col in TIMESTAMP_LIKE_COLUMNS:
+                    ts_fc = f"{ts_col}_Flag"
+                    if ts_fc in df.columns:
+                        df = df.drop(columns=[ts_fc])
 
                 return df
 

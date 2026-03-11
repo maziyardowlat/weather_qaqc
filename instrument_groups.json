@@ -103,6 +103,18 @@
                 "r_max": null,
                 "c_min": null,
                 "c_max": null
+            },
+            "MaxWS_ms_TMx": {
+                "r_min": null,
+                "r_max": null,
+                "c_min": null,
+                "c_max": null
+            },
+            "Dist_km_TMx": {
+                "r_min": null,
+                "r_max": null,
+                "c_min": null,
+                "c_max": null
             }
         }
     },
@@ -185,18 +197,6 @@
                 "r_max": 2200.0,
                 "c_min": -200.0,
                 "c_max": 1000.0
-            },
-            "Stmp_Avg": {
-                "r_min": -40.0,
-                "r_max": 70.0,
-                "c_min": null,
-                "c_max": null
-            },
-            "Gtmp_Avg": {
-                "r_min": -50.0,
-                "r_max": 70.0,
-                "c_min": null,
-                "c_max": null
             }
         }
     },
@@ -292,7 +292,7 @@
         }
     },
     "SnowVue10": {
-        "sensor_height": 200,
+        "sensor_height": 236,
         "thresholds": {
             "SV_DT_Avg": {
                 "r_min": 40.0,
