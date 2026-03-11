@@ -3052,17 +3052,17 @@ def main():
                     mask_t = (vals > limit_series)
                     _append_flag(df, flag_col, mask_t, 'R')
 
-                # Wind logic (NV): when wind speed is 0, wind direction is invalid.
-                # Apply NV to wind direction only (not WS_ms_Avg).
-
-                if 'WS_ms_Avg' in df.columns and 'WindDir' in df.columns:
+                # Wind validity logic (NV): wind-derived channels are valid only when WS_ms_Avg > 0.
+                # Apply NV when WS_ms_Avg <= 0.
+                if 'WS_ms_Avg' in df.columns:
                     ws = pd.to_numeric(df['WS_ms_Avg'], errors='coerce')
-                    mask_no_wind = ws.notna() & (ws == 0)
+                    mask_no_wind = ws.notna() & (ws <= 0)
                     if mask_no_wind.any():
-                        fc = 'WindDir_Flag'
-                        if fc not in df.columns:
-                            df[fc] = ""
-                        _append_flag(df, fc, mask_no_wind, 'NV')
+                        if 'WindDir' in df.columns:
+                            fc = 'WindDir_Flag'
+                            if fc not in df.columns:
+                                df[fc] = ""
+                            _append_flag(df, fc, mask_no_wind, 'NV')
 
                         # WindDir_SD1_WVT NV when wind speed is 0
                         wsd_col = None
@@ -3086,17 +3086,20 @@ def main():
                                 _append_flag(df, fc_mw, mask_no_wind, 'NV')
                                 break  # only one variant will be present
 
-                # Lightning-distance validity flag:
-                # Dist_km_Avg is valid only when Strikes_Tot > 0.
-                # Apply NV directly to Dist_km_Avg when Strikes_Tot == 0.
-                if 'Strikes_Tot' in df.columns and 'Dist_km_Avg' in df.columns:
+                # Lightning-distance validity flags:
+                # Dist_km_Avg and Dist_km_Max are valid only when Strikes_Tot > 0.
+                # Apply NV directly when Strikes_Tot <= 0.
+                if 'Strikes_Tot' in df.columns:
                     strikes = pd.to_numeric(df['Strikes_Tot'], errors='coerce')
-                    mask_no_strikes = strikes.notna() & (strikes == 0)
+                    mask_no_strikes = strikes.notna() & (strikes <= 0)
                     if mask_no_strikes.any():
-                        fc = 'Dist_km_Avg_Flag'
-                        if fc not in df.columns:
-                            df[fc] = ""
-                        _append_flag(df, fc, mask_no_strikes, 'NV')
+                        for dist_col in ['Dist_km_Avg', 'Dist_km_Max']:
+                            if dist_col not in df.columns:
+                                continue
+                            fc = f'{dist_col}_Flag'
+                            if fc not in df.columns:
+                                df[fc] = ""
+                            _append_flag(df, fc, mask_no_strikes, 'NV')
 
                 # Note: Tilt columns (TiltNS_deg_Avg, TiltWE_deg_Avg) are handled entirely by:
                 #   1. The main threshold loop above (applies C for >|3°|, R for >|90°|)
