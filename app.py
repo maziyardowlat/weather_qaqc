@@ -3064,13 +3064,10 @@ def main():
                                 df[fc] = ""
                             _append_flag(df, fc, mask_no_wind, 'NV')
 
-                        # WindDir_SD1_WVT NV when wind speed is 0
-                        wsd_col = None
-                        for candidate in ['WindDir_SD1_WVT', 'WindDir_SD1']:
-                            if candidate in df.columns:
-                                wsd_col = candidate
-                                break
-                        if wsd_col is not None:
+                        # WindDir standard-deviation variants NV when wind speed is 0.
+                        for wsd_col in ['WindDir_SD1_WVT', 'WindDir_SD1']:
+                            if wsd_col not in df.columns:
+                                continue
                             fc_wsd = f'{wsd_col}_Flag'
                             if fc_wsd not in df.columns:
                                 df[fc_wsd] = ""
@@ -3079,12 +3076,12 @@ def main():
                         # MaxWS_ms NV when wind speed is 0
                         # Per RefSensorThresholds: "Valid only if wind > 0"
                         for maxws in ['MaxWS_ms', 'MaxWS_ms_Avg', 'MaxWS_ms_Max']:
-                            if maxws in df.columns:
-                                fc_mw = f'{maxws}_Flag'
-                                if fc_mw not in df.columns:
-                                    df[fc_mw] = ""
-                                _append_flag(df, fc_mw, mask_no_wind, 'NV')
-                                break  # only one variant will be present
+                            if maxws not in df.columns:
+                                continue
+                            fc_mw = f'{maxws}_Flag'
+                            if fc_mw not in df.columns:
+                                df[fc_mw] = ""
+                            _append_flag(df, fc_mw, mask_no_wind, 'NV')
 
                 # Lightning-distance validity flags:
                 # Dist_km_Avg and Dist_km_Max are valid only when Strikes_Tot > 0.
