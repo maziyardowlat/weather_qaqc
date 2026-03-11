@@ -46,6 +46,8 @@ SENSOR_THRESHOLDS = {
     'Stmp_Avg':       {'r_min': -40.0, 'r_max': 70.0,   'c_min': None,  'c_max': None},
     # --- Campbell Scientific Model-109 Ground Temperature Probe ---
     'Gtmp_Avg':       {'r_min': -50.0, 'r_max': 70.0,   'c_min': None,  'c_max': None},
+    # --- Campbell Scientific T109 Air Temperature Probe (standalone) ---
+    'T109_AirT_C_Avg': {'r_min': -50.0, 'r_max': 70.0,  'c_min': None,  'c_max': None},
 
     # --- Campbell Scientific ClimaVUE50 Compact Weather Sensor ---
     'AirT_C_Avg':     {'r_min': -50.0, 'r_max': 60.0,   'c_min': None,  'c_max': None},
@@ -173,6 +175,15 @@ INITIAL_INSTRUMENT_GROUPS = {
             'BattV_Avg':   {'r_min': 9.6, 'r_max': 19, 'c_min': 10,   'c_max': 16},
             'PTemp_C_Avg': {'r_min': -40,  'r_max': 70, 'c_min': None, 'c_max': None},
             'Ptmp_C_Avg':  {'r_min': -40,  'r_max': 70, 'c_min': None, 'c_max': None},
+        },
+    },
+    'T109': {
+        'sensor_height': 30,
+        'thresholds': {
+            # T109 air temperature is intentionally separate from ClimaVue AirT_C_Avg
+            # so ClimaVue dependency rules do not apply.
+            'T109_AirT_C_Avg': {'r_min': -50, 'r_max': 70, 'c_min': None, 'c_max': None},
+            'Gtmp_Avg':        {'r_min': -50, 'r_max': 70, 'c_min': None, 'c_max': None},
         },
     },
     'SnowVue10': {
@@ -361,6 +372,9 @@ DEPENDENCY_CONFIG = [
     {'target': 'SV_DBTCDT_Avg', 'sources': ['SV_Alert'],                          'trigger_flags': ['E'], 'set_flag': 'DF'},
     # SV_DBTCDT — DC from SV_Volt, SV_Freq diagnostic C flags
     {'target': 'SV_DBTCDT_Avg', 'sources': ['SV_Volt', 'SV_Freq'],                'trigger_flags': ['C'], 'set_flag': 'DC'},
+    # SV_DBTCDT — direct quality dependency on SV_Q (in addition to the SV_TCDT chain)
+    {'target': 'SV_DBTCDT_Avg', 'sources': ['SV_Q_Avg'],                          'trigger_flags': ['C'], 'set_flag': 'DC'},
+    {'target': 'SV_DBTCDT_Avg', 'sources': ['SV_Q_Avg'],                          'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
 ]
 
 # Solar columns that get the nighttime Z-flag check.
@@ -376,6 +390,7 @@ COLUMN_ALIASES = {
     'stmp_Avg': 'Stmp_Avg',
     'gtmp_Avg': 'Gtmp_Avg',
     'RHT_Avg': 'RHT_C_Avg',
+    'WindDir_SD1': 'WindDir_SD1_WVT',
 }
 
 # Threshold-key equivalence for cases where the same variable appears under
@@ -385,6 +400,8 @@ THRESHOLD_KEY_EQUIVALENTS = {
     'MaxWS_ms': ['MaxWS_ms_Avg'],
     'RHT_C_Avg': ['RHT_Avg'],
     'RHT_Avg': ['RHT_C_Avg'],
+    'WindDir_SD1': ['WindDir_SD1_WVT'],
+    'WindDir_SD1_WVT': ['WindDir_SD1'],
 }
 
 # --- Helper Functions ---
@@ -3263,8 +3280,13 @@ def main():
                 if 'TIMESTAMP' in df.columns:
                     months = df['TIMESTAMP'].dt.month
                     snow_free_months = [6, 7, 8, 9]
-                    sr50_sf_cols = ['DT_Avg', 'TCDT_Avg', 'DBTCDT_Avg',
-                                    'SV_DT_Avg', 'SV_TCDT_Avg', 'SV_DBTCDT_Avg']
+                    # Apply SF to all snow-depth workflow outputs marked V,SF in RefSensorThresholds:
+                    # SR50/SR50AT: DT, Q, TCDT, snow(depth)
+                    # SnowVue10:   DT, Q, TCDT, snow(depth)
+                    sr50_sf_cols = [
+                        'DT_Avg', 'Q_Avg', 'TCDT_Avg', 'DBTCDT_Avg',
+                        'SV_DT_Avg', 'SV_Q_Avg', 'SV_TCDT_Avg', 'SV_DBTCDT_Avg'
+                    ]
                     for sr_col in sr50_sf_cols:
                         if sr_col not in df.columns:
                             continue

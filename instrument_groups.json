@@ -217,6 +217,23 @@
             }
         }
     },
+    "T109": {
+        "sensor_height": 30,
+        "thresholds": {
+            "T109_AirT_C_Avg": {
+                "r_min": -50.0,
+                "r_max": 70.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "Gtmp_Avg": {
+                "r_min": -50.0,
+                "r_max": 70.0,
+                "c_min": null,
+                "c_max": null
+            }
+        }
+    },
     "SR50_2": {
         "sensor_height": 150,
         "thresholds": {
