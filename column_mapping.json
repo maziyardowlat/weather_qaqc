@@ -411,5 +411,148 @@
             "C",
             "degC"
         ]
+    },
+    "MaxWS_ms_TMx": {
+        "aliases": [
+            "wind_max_time",
+            "MaxWS_ms_TMx"
+        ],
+        "unit": "Timestamp",
+        "unit_aliases": [
+            "Timestamp",
+            "TS"
+        ]
+    },
+    "Dist_km_TMx": {
+        "aliases": [
+            "strike_dist_max_time",
+            "Dist_km_TMx"
+        ],
+        "unit": "Timestamp",
+        "unit_aliases": [
+            "Timestamp",
+            "TS"
+        ]
+    },
+    "SV_DT_Avg": {
+        "aliases": [
+            "sv_dt",
+            "SV_DT",
+            "SV_DT_Avg"
+        ],
+        "unit": "cm",
+        "unit_aliases": [
+            "cm",
+            "centimeters"
+        ]
+    },
+    "SV_Q_Avg": {
+        "aliases": [
+            "sv_q",
+            "SV_Q",
+            "SV_Q_Avg"
+        ],
+        "unit": "",
+        "unit_aliases": []
+    },
+    "SV_TCDT_Avg": {
+        "aliases": [
+            "sv_tcdt",
+            "SV_TCDT",
+            "SV_TCDT_Avg"
+        ],
+        "unit": "cm",
+        "unit_aliases": [
+            "cm",
+            "centimeters"
+        ]
+    },
+    "SV_DBTCDT_Avg": {
+        "aliases": [
+            "sv_snow",
+            "SV_Snow_Depth",
+            "SV_DBTCDT_Avg"
+        ],
+        "unit": "cm",
+        "unit_aliases": [
+            "cm",
+            "centimeters"
+        ]
+    },
+    "SV_Tmp_Avg": {
+        "aliases": [
+            "sv_tmp",
+            "SV_Temp",
+            "SV_Tmp_Avg"
+        ],
+        "unit": "Deg C",
+        "unit_aliases": [
+            "Deg C",
+            "C",
+            "degC"
+        ]
+    },
+    "SV_RH": {
+        "aliases": [
+            "sv_rh",
+            "SV_RH"
+        ],
+        "unit": "%",
+        "unit_aliases": [
+            "%",
+            "percent"
+        ]
+    },
+    "SV_Pitch": {
+        "aliases": [
+            "sv_pitch",
+            "SV_Pitch"
+        ],
+        "unit": "degrees",
+        "unit_aliases": [
+            "degrees",
+            "deg"
+        ]
+    },
+    "SV_Roll": {
+        "aliases": [
+            "sv_roll",
+            "SV_Roll"
+        ],
+        "unit": "degrees",
+        "unit_aliases": [
+            "degrees",
+            "deg"
+        ]
+    },
+    "SV_Volt": {
+        "aliases": [
+            "sv_volt",
+            "SV_Volt"
+        ],
+        "unit": "Volts",
+        "unit_aliases": [
+            "Volts",
+            "V"
+        ]
+    },
+    "SV_Freq": {
+        "aliases": [
+            "sv_freq",
+            "SV_Freq"
+        ],
+        "unit": "kHz",
+        "unit_aliases": [
+            "kHz",
+            "kilohertz"
+        ]
+    },
+    "SV_Alert": {
+        "aliases": [
+            "sv_alert",
+            "SV_Alert"
+        ],
+        "unit": "",
+        "unit_aliases": []
     }
 }

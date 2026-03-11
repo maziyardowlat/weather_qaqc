@@ -85,6 +85,23 @@ SENSOR_THRESHOLDS = {
     'LWnet_Avg':      {'r_min': -200.0,'r_max': 200.0,  'c_min': -150.0,'c_max': 100.0},
     'SWalbedo_Avg':   {'r_min': 0.0,   'r_max': 1.0,    'c_min': 0.05,  'c_max': 0.95},
     'NR_Avg':         {'r_min': -2200.0,'r_max': 2200.0,'c_min': -200.0,'c_max': 1000.0},
+
+    # --- Timestamp-type columns (no numeric thresholds — Date/Time values) ---
+    'MaxWS_ms_TMx':   {'r_min': None, 'r_max': None, 'c_min': None, 'c_max': None},
+    'Dist_km_TMx':    {'r_min': None, 'r_max': None, 'c_min': None, 'c_max': None},
+
+    # --- Campbell Scientific SnowVue10 Smart Snow Depth Sensor ---
+    'SV_DT_Avg':      {'r_min': 40.0,  'r_max': 1000.0, 'c_min': None,  'c_max': None},
+    'SV_Q_Avg':       {'r_min': 0.0,   'r_max': 600.0,  'c_min': 100.0, 'c_max': 600.0},
+    'SV_TCDT_Avg':    {'r_min': 40.0,  'r_max': 1000.0, 'c_min': None,  'c_max': None},
+    'SV_DBTCDT_Avg':  {'r_min': 0.0,   'r_max': 'H-40', 'c_min': None,  'c_max': None},
+    'SV_Tmp_Avg':     {'r_min': -45.0, 'r_max': 50.0,   'c_min': None,  'c_max': None},
+    'SV_RH':          {'r_min': None,  'r_max': None,   'c_min': 0.0,   'c_max': 70.0},
+    'SV_Pitch':       {'r_min': None,  'r_max': None,   'c_min': 0.0,   'c_max': 10.0},
+    'SV_Roll':        {'r_min': None,  'r_max': None,   'c_min': 0.0,   'c_max': 10.0},
+    'SV_Volt':        {'r_min': None,  'r_max': None,   'c_min': 5.5,   'c_max': 24.0},
+    'SV_Freq':        {'r_min': None,  'r_max': None,   'c_min': 40.0,  'c_max': 60.0},
+    'SV_Alert':       {'r_min': None,  'r_max': None,   'c_min': None,  'c_max': None},
 }
 
 # ---------------------------------------------------------------------------
@@ -156,6 +173,22 @@ INITIAL_INSTRUMENT_GROUPS = {
             'BattV_Avg':   {'r_min': 9.6, 'r_max': 19, 'c_min': 10,   'c_max': 16},
             'PTemp_C_Avg': {'r_min': -40,  'r_max': 70, 'c_min': None, 'c_max': None},
             'Ptmp_C_Avg':  {'r_min': -40,  'r_max': 70, 'c_min': None, 'c_max': None},
+        },
+    },
+    'SnowVue10': {
+        'sensor_height': 200,
+        'thresholds': {
+            'SV_DT_Avg':     {'r_min': 40,   'r_max': 1000, 'c_min': None,  'c_max': None},
+            'SV_Q_Avg':      {'r_min': 0,    'r_max': 600,  'c_min': 100,   'c_max': 600},
+            'SV_TCDT_Avg':   {'r_min': 40,   'r_max': 1000, 'c_min': None,  'c_max': None},
+            'SV_DBTCDT_Avg': {'r_min': 0,    'r_max': 'H-40','c_min': None, 'c_max': None},
+            'SV_Tmp_Avg':    {'r_min': -45,  'r_max': 50,   'c_min': None,  'c_max': None},
+            'SV_RH':         {'r_min': None, 'r_max': None, 'c_min': 0,     'c_max': 70},
+            'SV_Pitch':      {'r_min': None, 'r_max': None, 'c_min': 0,     'c_max': 10},
+            'SV_Roll':       {'r_min': None, 'r_max': None, 'c_min': 0,     'c_max': 10},
+            'SV_Volt':       {'r_min': None, 'r_max': None, 'c_min': 5.5,   'c_max': 24},
+            'SV_Freq':       {'r_min': None, 'r_max': None, 'c_min': 40,    'c_max': 60},
+            'SV_Alert':      {'r_min': None, 'r_max': None, 'c_min': None,  'c_max': None},
         },
     },
 }
@@ -235,8 +268,17 @@ DEPENDENCY_CONFIG = [
     # ClimaVUE50 — max lightning distance depends on Strikes_Tot
     {'target': 'Dist_km_Max',  'sources': ['Strikes_Tot'],                       'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
 
+    # ClimaVUE50 — time of max lightning distance depends on Strikes_Tot and Dist_km_Avg
+    {'target': 'Dist_km_TMx',  'sources': ['Strikes_Tot'],                       'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
+    {'target': 'Dist_km_TMx',  'sources': ['Dist_km_Avg'],                       'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
+    {'target': 'Dist_km_TMx',  'sources': ['Dist_km_Avg'],                       'trigger_flags': ['NV'], 'set_flag': 'NV'},
+
     # ClimaVUE50 — wind direction standard deviation depends on WindDir
     {'target': 'WindDir_SD1_WVT', 'sources': ['WindDir'],                        'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
+    {'target': 'WindDir_SD1_WVT', 'sources': ['WindDir'],                        'trigger_flags': ['NV'], 'set_flag': 'NV'},
+
+    # ClimaVUE50 — time of max wind gust depends on WS_ms_Avg
+    {'target': 'MaxWS_ms_TMx',   'sources': ['WS_ms_Avg'],                      'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
 
     # -----------------------------------------------------------------------
     # SR50 Sonic Ranger
@@ -294,11 +336,40 @@ DEPENDENCY_CONFIG = [
     {'target': 'NR_Avg',       'sources': ['SWnet_Avg', 'LWnet_Avg', 'LWin_Avg', 'LWout_Avg'], 'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
     # NR gets DC if SWin/SWout/LWin/LWout has C (per RefSensorThresholds Notes)
     {'target': 'NR_Avg',       'sources': ['SWin_Avg', 'SWout_Avg', 'LWin_Avg', 'LWout_Avg'], 'trigger_flags': ['C'], 'set_flag': 'DC'},
+
+    # -----------------------------------------------------------------------
+    # SnowVue10 Smart Snow Depth Sensor
+    # NOTE: SV_TCDT depends on SV_Tmp (SnowVue internal temp), NOT AirT_C_Avg
+    # -----------------------------------------------------------------------
+    # SV_Q depends on SV_DT (DF if DT is R, E, or M)
+    {'target': 'SV_Q_Avg',      'sources': ['SV_DT_Avg'],                         'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
+
+    # SV_TCDT depends on SV_Tmp (internal temp, NOT AirT_C_Avg) — DF if R, E, or M
+    {'target': 'SV_TCDT_Avg',   'sources': ['SV_Tmp_Avg'],                        'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
+    # SV_TCDT depends on SV_Q — DC if C, DF if R/E/M
+    {'target': 'SV_TCDT_Avg',   'sources': ['SV_Q_Avg'],                          'trigger_flags': ['C'], 'set_flag': 'DC'},
+    {'target': 'SV_TCDT_Avg',   'sources': ['SV_Q_Avg'],                          'trigger_flags': ['R', 'E', 'M'], 'set_flag': 'DF'},
+    # SV_TCDT depends on SV_DT — DF if R/E/M
+    {'target': 'SV_TCDT_Avg',   'sources': ['SV_DT_Avg'],                         'trigger_flags': ['R', 'E', 'M'], 'set_flag': 'DF'},
+
+    # SV_DBTCDT (snow depth) depends on SV_TCDT — DF if R/E/DF/M, DC if DC
+    {'target': 'SV_DBTCDT_Avg', 'sources': ['SV_TCDT_Avg'],                       'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
+    {'target': 'SV_DBTCDT_Avg', 'sources': ['SV_TCDT_Avg'],                       'trigger_flags': ['DC'], 'set_flag': 'DC'},
+    # SV_DBTCDT — T flag when pitch/roll exceeds accuracy range (C flag)
+    {'target': 'SV_DBTCDT_Avg', 'sources': ['SV_Pitch', 'SV_Roll'],               'trigger_flags': ['C'], 'set_flag': 'T'},
+    # SV_DBTCDT — DF from SV_Alert (E means alert active)
+    {'target': 'SV_DBTCDT_Avg', 'sources': ['SV_Alert'],                          'trigger_flags': ['E'], 'set_flag': 'DF'},
+    # SV_DBTCDT — DC from SV_Volt, SV_Freq diagnostic C flags
+    {'target': 'SV_DBTCDT_Avg', 'sources': ['SV_Volt', 'SV_Freq'],                'trigger_flags': ['C'], 'set_flag': 'DC'},
 ]
 
 # Solar columns that get the nighttime Z-flag check.
 # SWnet does NOT get Z from this loop — it inherits Z from SWin via dependency.
 SOLAR_COLUMNS = ['SlrFD_W_Avg', 'SWin_Avg', 'SWout_Avg']
+
+# Timestamp-like columns that carry Date/Time values (not numeric).
+# These columns skip the threshold loop but still receive dependency/NV/BV/PT/LR flags.
+TIMESTAMP_LIKE_COLUMNS = {'MaxWS_ms_TMx', 'Dist_km_TMx'}
 
 # Canonical sensor column names with accepted alias spellings.
 COLUMN_ALIASES = {
@@ -2627,10 +2698,10 @@ def main():
                     if v is None:
                         return None
                     if isinstance(v, str):
-                        if v == 'H+5':
-                            return sensor_height + 5
-                        if v == 'H-50':
-                            return sensor_height - 50
+                        # Handle H+N or H-N patterns (e.g. H-50, H-40, H+5)
+                        hm = re.match(r'^H([+-]\d+(?:\.\d+)?)$', v)
+                        if hm:
+                            return sensor_height + float(hm.group(1))
                         if v in data_slice.columns:
                             return pd.to_numeric(data_slice[v], errors='coerce')
                     return v
@@ -2710,6 +2781,13 @@ def main():
                 ]
 
                 for col in qc_cols:
+                    # Skip timestamp-like columns (no numeric thresholds apply)
+                    if col in TIMESTAMP_LIKE_COLUMNS:
+                        flag_col = f"{col}_Flag"
+                        if flag_col not in df.columns:
+                            df[flag_col] = ""
+                        continue
+
                     # --- Determine base R and C limits from SENSOR_THRESHOLDS ---
                     base_spec = SENSOR_THRESHOLDS.get(col)
 
@@ -2903,6 +2981,35 @@ def main():
                      mask_t = (vals > limit_series)
                      _append_flag(df, flag_col, mask_t, 'R')
 
+                # SnowVue10 Snow Depth Logic — Time-varying sensor height per deployment (H-40)
+                if 'SV_DBTCDT_Avg' in df.columns:
+                    vals = pd.to_numeric(df['SV_DBTCDT_Avg'], errors='coerce')
+                    flag_col = 'SV_DBTCDT_Avg_Flag'
+                    if flag_col not in df.columns:
+                        df[flag_col] = ""
+
+                    default_sensor_height = 200
+                    limit_series = pd.Series(default_sensor_height - 40, index=df.index)
+
+                    for dep in current_deps:
+                        grp_data = instr_groups.get(dep['group'], {})
+                        grp_thresholds, grp_sensor_height = _get_grp_thresholds(grp_data)
+                        col_spec, _matched_key = get_threshold_spec_for_column(grp_thresholds, 'SV_DBTCDT_Avg')
+                        if col_spec is None:
+                            continue
+                        try:
+                            t_s = pd.to_datetime(dep['start'])
+                            t_e = pd.to_datetime(dep['end']) + timedelta(hours=23, minutes=59)
+                            mask_time = (df['TIMESTAMP'] >= t_s) & (df['TIMESTAMP'] <= t_e)
+                            if mask_time.any():
+                                limit_series.loc[mask_time] = grp_sensor_height - 40
+                        except Exception as e:
+                            st.warning(f"Config Error in SV_DBTCDT_Avg logic ({dep}): {e}")
+
+                    # R > H-40 (hard limit breach — sensor-height-dependent)
+                    mask_t = (vals > limit_series)
+                    _append_flag(df, flag_col, mask_t, 'R')
+
                 # Wind logic (NV): when wind speed is 0, wind direction is invalid.
                 # Apply NV to wind direction only (not WS_ms_Avg).
 
@@ -2914,6 +3021,35 @@ def main():
                         if fc not in df.columns:
                             df[fc] = ""
                         _append_flag(df, fc, mask_no_wind, 'NV')
+
+                        # WindDir_SD1_WVT NV when wind speed is 0
+                        wsd_col = None
+                        for candidate in ['WindDir_SD1_WVT', 'WindDir_SD1']:
+                            if candidate in df.columns:
+                                wsd_col = candidate
+                                break
+                        if wsd_col is not None:
+                            fc_wsd = f'{wsd_col}_Flag'
+                            if fc_wsd not in df.columns:
+                                df[fc_wsd] = ""
+                            _append_flag(df, fc_wsd, mask_no_wind, 'NV')
+
+                        # MaxWS_ms NV when wind speed is 0
+                        # Per RefSensorThresholds: "Valid only if wind > 0"
+                        for maxws in ['MaxWS_ms', 'MaxWS_ms_Avg', 'MaxWS_ms_Max']:
+                            if maxws in df.columns:
+                                fc_mw = f'{maxws}_Flag'
+                                if fc_mw not in df.columns:
+                                    df[fc_mw] = ""
+                                _append_flag(df, fc_mw, mask_no_wind, 'NV')
+                                break  # only one variant will be present
+
+                        # MaxWS_ms_TMx (time of max wind gust) NV when wind speed is 0
+                        if 'MaxWS_ms_TMx' in df.columns:
+                            fc_tmx = 'MaxWS_ms_TMx_Flag'
+                            if fc_tmx not in df.columns:
+                                df[fc_tmx] = ""
+                            _append_flag(df, fc_tmx, mask_no_wind, 'NV')
 
                 # Lightning-distance validity flag:
                 # Dist_km_Avg is valid only when Strikes_Tot > 0.
@@ -3005,8 +3141,14 @@ def main():
                     raw_vals = pd.to_numeric(df[col], errors='coerce')
                     mask_err_val = raw_vals.isin(ERROR_VALUES)
                     # Per RefSensorThresholds notes for DT: "E if 0 (no echo detected)"
-                    if col == 'DT_Avg':
+                    if col in ('DT_Avg', 'SV_DT_Avg'):
                         mask_err_val = mask_err_val | raw_vals.eq(0)
+                    # Per RefSensorThresholds: SV_Q_Avg "E if 0"
+                    if col == 'SV_Q_Avg':
+                        mask_err_val = mask_err_val | raw_vals.eq(0)
+                    # Per RefSensorThresholds: SV_Alert "E if 1" (alert active)
+                    if col == 'SV_Alert':
+                        mask_err_val = mask_err_val | raw_vals.eq(1)
                     if mask_err_val.any():
                         # E is exclusive: if present, suppress all other flags in this cell.
                         df.loc[mask_err_val, flag_col] = "E"
@@ -3121,7 +3263,8 @@ def main():
                 if 'TIMESTAMP' in df.columns:
                     months = df['TIMESTAMP'].dt.month
                     snow_free_months = [6, 7, 8, 9]
-                    sr50_sf_cols = ['DT_Avg', 'TCDT_Avg', 'DBTCDT_Avg']
+                    sr50_sf_cols = ['DT_Avg', 'TCDT_Avg', 'DBTCDT_Avg',
+                                    'SV_DT_Avg', 'SV_TCDT_Avg', 'SV_DBTCDT_Avg']
                     for sr_col in sr50_sf_cols:
                         if sr_col not in df.columns:
                             continue

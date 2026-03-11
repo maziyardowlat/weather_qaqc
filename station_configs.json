@@ -15,6 +15,21 @@
             }
         ]
     },
+    "02FE001": {
+        "latitude": 54.0867,
+        "longitude": -122.0759,
+        "deployments": []
+    },
+    "02FE002": {
+        "latitude": 53.772027,
+        "longitude": -121.230286,
+        "deployments": []
+    },
+    "02MF005": {
+        "latitude": 52.70779,
+        "longitude": -121.33403,
+        "deployments": []
+    },
     "02MFW005": {
         "latitude": 53.7217,
         "longitude": -125.6417,
@@ -40,16 +55,6 @@
                 "group": "System"
             }
         ]
-    },
-    "02MF002": {
-        "latitude": 51.12,
-        "longitude": -122.0,
-        "deployments": []
-    },
-    "02MFW002": {
-        "latitude": 53.7217,
-        "longitude": -125.6417,
-        "deployments": []
     },
     "02FW005": {
         "latitude": 53.7217,
@@ -77,24 +82,59 @@
             }
         ]
     },
-    "02FW": {
+    "02MF001": {
+        "latitude": 52.596679,
+        "longitude": -120.503056,
+        "deployments": []
+    },
+    "02FW007": {
+        "latitude": 54.024127,
+        "longitude": -123.093213,
+        "deployments": []
+    },
+    "02MF002": {
+        "latitude": 52.753835,
+        "longitude": -120.834193,
+        "deployments": []
+    },
+    "02MFW002": {
         "latitude": 53.7217,
         "longitude": -125.6417,
         "deployments": []
     },
-    "02": {
-        "latitude": 53.7217,
-        "longitude": -125.6417,
-        "deployments": []
-    },
-    "02W008": {
-        "latitude": 53.9272,
-        "longitude": -123.2583,
+    "02NE005": {
+        "latitude": 53.6747,
+        "longitude": -127.1611,
         "deployments": []
     },
     "02FW008": {
-        "latitude": 53.7217,
-        "longitude": -125.6417,
+        "latitude": 53.95717,
+        "longitude": -123.258278,
+        "deployments": []
+    },
+    "02FW003": {
+        "latitude": 53.902474,
+        "longitude": -126.966083,
+        "deployments": []
+    },
+    "02FW002": {
+        "latitude": 54.024181,
+        "longitude": -123.093211,
+        "deployments": []
+    },
+    "02FW006": {
+        "latitude": 53.913409,
+        "longitude": -124.151613,
+        "deployments": []
+    },
+    "02MF003": {
+        "latitude": 52.4873,
+        "longitude": -121.2845,
+        "deployments": []
+    },
+    "02MF004": {
+        "latitude": 52.618489,
+        "longitude": -121.589828,
         "deployments": []
     },
     "02MF009": {
@@ -112,5 +152,35 @@
                 "group": "System"
             }
         ]
+    },
+    "02FW001": {
+        "latitude": 53.544785,
+        "longitude": -124.27394,
+        "deployments": []
+    },
+    "02SN001": {
+        "latitude": 54.51271,
+        "longitude": -128.6053,
+        "deployments": []
+    },
+    "02NE003": {
+        "latitude": 53.7277,
+        "longitude": -127.2599,
+        "deployments": []
+    },
+    "02FW": {
+        "latitude": 53.7217,
+        "longitude": -125.6417,
+        "deployments": []
+    },
+    "02": {
+        "latitude": 53.7217,
+        "longitude": -125.6417,
+        "deployments": []
+    },
+    "02W008": {
+        "latitude": 53.9272,
+        "longitude": -123.2583,
+        "deployments": []
     }
 }

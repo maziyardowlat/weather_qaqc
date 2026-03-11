@@ -273,5 +273,76 @@
                 "c_max": null
             }
         }
+    },
+    "SnowVue10": {
+        "sensor_height": 200,
+        "thresholds": {
+            "SV_DT_Avg": {
+                "r_min": 40.0,
+                "r_max": 1000.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "SV_Q_Avg": {
+                "r_min": 0.0,
+                "r_max": 600.0,
+                "c_min": 100.0,
+                "c_max": 600.0
+            },
+            "SV_TCDT_Avg": {
+                "r_min": 40.0,
+                "r_max": 1000.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "SV_DBTCDT_Avg": {
+                "r_min": 0.0,
+                "r_max": null,
+                "c_min": null,
+                "c_max": null
+            },
+            "SV_Tmp_Avg": {
+                "r_min": -45.0,
+                "r_max": 50.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "SV_RH": {
+                "r_min": null,
+                "r_max": null,
+                "c_min": 0.0,
+                "c_max": 70.0
+            },
+            "SV_Pitch": {
+                "r_min": null,
+                "r_max": null,
+                "c_min": 0.0,
+                "c_max": 10.0
+            },
+            "SV_Roll": {
+                "r_min": null,
+                "r_max": null,
+                "c_min": 0.0,
+                "c_max": 10.0
+            },
+            "SV_Volt": {
+                "r_min": null,
+                "r_max": null,
+                "c_min": 5.5,
+                "c_max": 24.0
+            },
+            "SV_Freq": {
+                "r_min": null,
+                "r_max": null,
+                "c_min": 40.0,
+                "c_max": 60.0
+            },
+            "SV_Alert": {
+                "r_min": null,
+                "r_max": null,
+                "c_min": null,
+                "c_max": null
+            }
+        }
     }
 }
