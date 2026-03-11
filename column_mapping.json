@@ -127,7 +127,8 @@
             "WS_ms",
             "Wind_Speed",
             "WS_ms_Avg",
-            "WS_ms_S_WVT"
+            "WS_ms_S_WVT",
+            "CV_WS_ms_S_WVT"
         ],
         "unit": "meters/second",
         "unit_aliases": [
@@ -140,7 +141,8 @@
             "wdir",
             "Wind_Dir",
             "WindDir",
-            "WindDir_D1_WVT"
+            "WindDir_D1_WVT",
+            "CV_WindDir_D1_WVT"
         ],
         "unit": "degrees",
         "unit_aliases": [
@@ -155,7 +157,8 @@
             "Max_Wind_Speed",
             "MaxWS_ms_Avg",
             "MaxWS_ms_Max",
-            "wind_max"
+            "wind_max",
+            "CV_MaxWS_ms_Max"
         ],
         "unit": "meters/second",
         "unit_aliases": [
@@ -170,7 +173,8 @@
             "AirTemp",
             "AirT_C_Avg",
             "cv_atmp_310_Avg",
-            "atmp_2m"
+            "atmp_2m",
+            "CV_AirT_C_Avg"
         ],
         "unit": "Deg C",
         "unit_aliases": [
@@ -182,7 +186,8 @@
     "T109_AirT_C_Avg": {
         "aliases": [
             "T109_AirT_C_Avg",
-            "atmp_30_Avg"
+            "atmp_30_Avg",
+            "Air_55cm_T109_C_Avg"
         ],
         "unit": "Deg C",
         "unit_aliases": [
@@ -431,7 +436,8 @@
             "Net_Radiation",
             "NR_Avg",
             "net_rad_Avg",
-            "rad_net"
+            "rad_net",
+            "Net_Rad_Avg"
         ],
         "unit": "W/m^2",
         "unit_aliases": [
@@ -455,7 +461,8 @@
         "aliases": [
             "WindDir_SD1_WVT",
             "WindDir_SD1",
-            "wind_dir_sd"
+            "wind_dir_sd",
+            "CV_WindDir_SD1_WVT"
         ],
         "unit": "m/s",
         "unit_aliases": [
@@ -494,7 +501,8 @@
     "MaxWS_ms_TMx": {
         "aliases": [
             "wind_max_time",
-            "MaxWS_ms_TMx"
+            "MaxWS_ms_TMx",
+            "CV_MaxWS_ms_TMx"
         ],
         "unit": "Timestamp",
         "unit_aliases": [
@@ -551,7 +559,8 @@
             "sv_snow",
             "SV_Snow_Depth",
             "SV_DBTCDT_Avg",
-            "snowdepth_Avg"
+            "snowdepth_Avg",
+            "SV_Snow_Depth_Avg"
         ],
         "unit": "cm",
         "unit_aliases": [
@@ -641,5 +650,75 @@
         ],
         "unit": "",
         "unit_aliases": []
+    },
+    "Gtmp_0cm_Avg": {
+        "aliases": [
+            "Gtmp_0cm_Avg",
+            "Temp1_0cm_Avg",
+            "gtmp_0cm",
+            "gtmp_0cm_avg"
+        ],
+        "unit": "Deg C",
+        "unit_aliases": [
+            "Deg C",
+            "C",
+            "degC"
+        ]
+    },
+    "Gtmp_5cm_Avg": {
+        "aliases": [
+            "Gtmp_5cm_Avg",
+            "Temp2_5cm_Avg",
+            "gtmp_5cm",
+            "gtmp_5cm_avg"
+        ],
+        "unit": "Deg C",
+        "unit_aliases": [
+            "Deg C",
+            "C",
+            "degC"
+        ]
+    },
+    "Gtmp_10cm_Avg": {
+        "aliases": [
+            "Gtmp_10cm_Avg",
+            "Temp3_10cm_Avg",
+            "gtmp_10cm",
+            "gtmp_10cm_avg"
+        ],
+        "unit": "Deg C",
+        "unit_aliases": [
+            "Deg C",
+            "C",
+            "degC"
+        ]
+    },
+    "Gtmp_15cm_Avg": {
+        "aliases": [
+            "Gtmp_15cm_Avg",
+            "Temp4_15cm_Avg",
+            "gtmp_15cm",
+            "gtmp_15cm_avg"
+        ],
+        "unit": "Deg C",
+        "unit_aliases": [
+            "Deg C",
+            "C",
+            "degC"
+        ]
+    },
+    "Gtmp_20cm_Avg": {
+        "aliases": [
+            "Gtmp_20cm_Avg",
+            "Temp5_20cm_Avg",
+            "gtmp_20cm",
+            "gtmp_20cm_avg"
+        ],
+        "unit": "Deg C",
+        "unit_aliases": [
+            "Deg C",
+            "C",
+            "degC"
+        ]
     }
 }

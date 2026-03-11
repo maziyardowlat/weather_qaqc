@@ -225,12 +225,6 @@
                 "r_max": 70.0,
                 "c_min": null,
                 "c_max": null
-            },
-            "Gtmp_Avg": {
-                "r_min": -50.0,
-                "r_max": 70.0,
-                "c_min": null,
-                "c_max": null
             }
         }
     },
@@ -292,7 +286,7 @@
         }
     },
     "SnowVue10": {
-        "sensor_height": 236,
+        "sensor_height": 246,
         "thresholds": {
             "SV_DT_Avg": {
                 "r_min": 40.0,
@@ -314,7 +308,7 @@
             },
             "SV_DBTCDT_Avg": {
                 "r_min": 0.0,
-                "r_max": null,
+                "r_max": 206.0,
                 "c_min": null,
                 "c_max": null
             },
@@ -357,6 +351,41 @@
             "SV_Alert": {
                 "r_min": null,
                 "r_max": null,
+                "c_min": null,
+                "c_max": null
+            }
+        }
+    },
+    "CS231": {
+        "sensor_height": 0,
+        "thresholds": {
+            "Gtmp_0cm_Avg": {
+                "r_min": -55.0,
+                "r_max": 85.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "Gtmp_5cm_Avg": {
+                "r_min": -55.0,
+                "r_max": 85.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "Gtmp_10cm_Avg": {
+                "r_min": -55.0,
+                "r_max": 85.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "Gtmp_15cm_Avg": {
+                "r_min": -55.0,
+                "r_max": 85.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "Gtmp_20cm_Avg": {
+                "r_min": -55.0,
+                "r_max": 85.0,
                 "c_min": null,
                 "c_max": null
             }

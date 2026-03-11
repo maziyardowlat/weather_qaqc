@@ -46,6 +46,11 @@ SENSOR_THRESHOLDS = {
     'Stmp_Avg':       {'r_min': -40.0, 'r_max': 70.0,   'c_min': None,  'c_max': None},
     # --- Campbell Scientific Model-109 Ground Temperature Probe ---
     'Gtmp_Avg':       {'r_min': -50.0, 'r_max': 70.0,   'c_min': None,  'c_max': None},
+    'Gtmp_0cm_Avg':   {'r_min': -55.0, 'r_max': 85.0,   'c_min': None,  'c_max': None},
+    'Gtmp_5cm_Avg':   {'r_min': -55.0, 'r_max': 85.0,   'c_min': None,  'c_max': None},
+    'Gtmp_10cm_Avg':   {'r_min': -55.0, 'r_max': 85.0,   'c_min': None,  'c_max': None},
+    'Gtmp_15cm_Avg':   {'r_min': -55.0, 'r_max': 85.0,   'c_min': None,  'c_max': None},
+    'Gtmp_20cm_Avg':   {'r_min': -55.0, 'r_max': 85.0,   'c_min': None,  'c_max': None},
     # --- Campbell Scientific T109 Air Temperature Probe (standalone) ---
     'T109_AirT_C_Avg': {'r_min': -50.0, 'r_max': 70.0,  'c_min': None,  'c_max': None},
 
@@ -184,6 +189,16 @@ INITIAL_INSTRUMENT_GROUPS = {
             # so ClimaVue dependency rules do not apply.
             'T109_AirT_C_Avg': {'r_min': -50, 'r_max': 70, 'c_min': None, 'c_max': None},
             'Gtmp_Avg':        {'r_min': -50, 'r_max': 70, 'c_min': None, 'c_max': None},
+        },
+    },
+    'CS231': {
+        'sensor_height': 0,
+        'thresholds': {
+            'Gtmp_0cm_Avg':   {'r_min': -55.0, 'r_max': 85.0,   'c_min': None,  'c_max': None},
+            'Gtmp_5cm_Avg':   {'r_min': -55.0, 'r_max': 85.0,   'c_min': None,  'c_max': None},
+            'Gtmp_10cm_Avg':   {'r_min': -55.0, 'r_max': 85.0,   'c_min': None,  'c_max': None},
+            'Gtmp_15cm_Avg':   {'r_min': -55.0, 'r_max': 85.0,   'c_min': None,  'c_max': None},
+            'Gtmp_20cm_Avg':   {'r_min': -55.0, 'r_max': 85.0,   'c_min': None,  'c_max': None},
         },
     },
     'SnowVue10': {
