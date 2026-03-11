@@ -470,17 +470,61 @@
             "M/S"
         ]
     },
-    "SRTmp_C_Avg": {
+    "SR50AT_SRTmp_C_Avg": {
         "aliases": [
             "srtmp",
             "SR_Temp",
-            "SRTmp_C_Avg"
+            "SRTmp_C_Avg",
+            "SR50AT_SRTmp_C_Avg"
         ],
         "unit": "Deg C",
         "unit_aliases": [
             "Deg C",
             "C",
             "degC"
+        ]
+    },
+    "SR50AT_DT_Avg": {
+        "aliases": [
+            "SR50AT_DT_Avg",
+            "sr50at_dt"
+        ],
+        "unit": "cm",
+        "unit_aliases": [
+            "cm",
+            "centimeters"
+        ]
+    },
+    "SR50AT_Q_Avg": {
+        "aliases": [
+            "SR50AT_Q_Avg",
+            "sr50at_q"
+        ],
+        "unit": "unitless",
+        "unit_aliases": [
+            "unitless"
+        ]
+    },
+    "SR50AT_TCDT_Avg": {
+        "aliases": [
+            "SR50AT_TCDT_Avg",
+            "sr50at_tcdt"
+        ],
+        "unit": "cm",
+        "unit_aliases": [
+            "cm",
+            "centimeters"
+        ]
+    },
+    "SR50AT_DBTCDT_Avg": {
+        "aliases": [
+            "SR50AT_DBTCDT_Avg",
+            "sr50at_snow"
+        ],
+        "unit": "cm",
+        "unit_aliases": [
+            "cm",
+            "centimeters"
         ]
     },
     "Gtmp_Avg": {

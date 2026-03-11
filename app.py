@@ -93,9 +93,20 @@ SENSOR_THRESHOLDS = {
     'SWalbedo_Avg':   {'r_min': 0.0,   'r_max': 1.0,    'c_min': 0.05,  'c_max': 0.95},
     'NR_Avg':         {'r_min': -2200.0,'r_max': 2200.0,'c_min': -200.0,'c_max': 1000.0},
 
+    # --- ClimaVue50 additional columns ---
+    'Dist_km_Max':    {'r_min': 0.0,   'r_max': 40.0,   'c_min': None,  'c_max': None},
+    'WindDir_SD1_WVT':{'r_min': None,  'r_max': None,   'c_min': None,  'c_max': None},
+
     # --- Timestamp-type columns (no numeric thresholds — Date/Time values) ---
     'MaxWS_ms_TMx':   {'r_min': None, 'r_max': None, 'c_min': None, 'c_max': None},
     'Dist_km_TMx':    {'r_min': None, 'r_max': None, 'c_min': None, 'c_max': None},
+
+    # --- Campbell Scientific SR50AT Sonic Ranger (with built-in temperature sensor) ---
+    'SR50AT_DT_Avg':      {'r_min': 50.0,  'r_max': 1000.0, 'c_min': None,  'c_max': None},
+    'SR50AT_Q_Avg':       {'r_min': 162.0, 'r_max': 600.0,  'c_min': None,  'c_max': 210.0},
+    'SR50AT_TCDT_Avg':    {'r_min': 50.0,  'r_max': 1000.0, 'c_min': None,  'c_max': None},
+    'SR50AT_DBTCDT_Avg':  {'r_min': 0.0,   'r_max': 'H-50', 'c_min': None,  'c_max': None},
+    'SR50AT_SRTmp_C_Avg': {'r_min': -45.0, 'r_max': 50.0,   'c_min': None,  'c_max': None},
 
     # --- Campbell Scientific SnowVue10 Smart Snow Depth Sensor ---
     'SV_DT_Avg':      {'r_min': 40.0,  'r_max': 1000.0, 'c_min': None,  'c_max': None},
@@ -148,6 +159,8 @@ INITIAL_INSTRUMENT_GROUPS = {
             'TiltNS_deg_Avg': {'r_min': -90,   'r_max': 90,    'c_min': -3,    'c_max': 3},
             'TiltWE_deg_Avg': {'r_min': -90,   'r_max': 90,    'c_min': -3,    'c_max': 3},
             'SlrTF_MJ_Tot':   {'r_min': 0,     'r_max': 1.575, 'c_min': 0,     'c_max': 1.215},
+            'Dist_km_Max':    {'r_min': 0,     'r_max': 40,    'c_min': None,  'c_max': None},
+            'WindDir_SD1_WVT':{'r_min': None,  'r_max': None,  'c_min': None,  'c_max': None},
         },
     },
     'SR50': {
@@ -199,6 +212,18 @@ INITIAL_INSTRUMENT_GROUPS = {
             'Gtmp_10cm_Avg':   {'r_min': -55.0, 'r_max': 85.0,   'c_min': None,  'c_max': None},
             'Gtmp_15cm_Avg':   {'r_min': -55.0, 'r_max': 85.0,   'c_min': None,  'c_max': None},
             'Gtmp_20cm_Avg':   {'r_min': -55.0, 'r_max': 85.0,   'c_min': None,  'c_max': None},
+        },
+    },
+    'SR50AT': {
+        'sensor_height': 200,
+        'thresholds': {
+            'SR50AT_DT_Avg':      {'r_min': 50,   'r_max': 1000, 'c_min': None, 'c_max': None},
+            'SR50AT_Q_Avg':       {'r_min': 162,  'r_max': 600,  'c_min': None, 'c_max': 210},
+            'SR50AT_TCDT_Avg':    {'r_min': 50,   'r_max': 1000, 'c_min': None, 'c_max': None},
+            'SR50AT_DBTCDT_Avg':  {'r_min': 0,    'r_max': 'H-50', 'c_min': None, 'c_max': None},
+            'SR50AT_SRTmp_C_Avg': {'r_min': -45,  'r_max': 50,   'c_min': None, 'c_max': None},
+            # Note: SR50AT has a built-in temperature sensor (SRTmp) for temp correction.
+            # DBTCDT r_max = sensor_height - 50 (same as SR50).
         },
     },
     'SnowVue10': {
@@ -329,11 +354,22 @@ DEPENDENCY_CONFIG = [
 
     # -----------------------------------------------------------------------
     # SR50AT Sonic Ranger (with built-in temperature sensor)
+    # NOTE: All SR50AT columns use SR50AT_ prefix to differentiate from SR50.
+    # SR50AT has a built-in temp sensor (SRTmp) — temp correction uses SRTmp, NOT AirT_C_Avg.
     # -----------------------------------------------------------------------
-    # SRTmp (built-in temp) affects TCDT — DC if SRTmp is DC
-    {'target': 'TCDT_Avg',     'sources': ['SRTmp_C_Avg'],                       'trigger_flags': ['DC'], 'set_flag': 'DC'},
-    # SRTmp affects TCDT — DF if SRTmp is R, E, or DF
-    {'target': 'TCDT_Avg',     'sources': ['SRTmp_C_Avg'],                       'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
+    # SR50AT_Q depends on SR50AT_DT
+    {'target': 'SR50AT_Q_Avg',       'sources': ['SR50AT_DT_Avg'],                   'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
+    # SR50AT_TCDT depends on SR50AT_DT — DF if R/E/M
+    {'target': 'SR50AT_TCDT_Avg',    'sources': ['SR50AT_DT_Avg'],                   'trigger_flags': ['R', 'E', 'M'], 'set_flag': 'DF'},
+    # SR50AT_TCDT depends on SR50AT_Q — DC if C, DF if R/E/M
+    {'target': 'SR50AT_TCDT_Avg',    'sources': ['SR50AT_Q_Avg'],                    'trigger_flags': ['C'], 'set_flag': 'DC'},
+    {'target': 'SR50AT_TCDT_Avg',    'sources': ['SR50AT_Q_Avg'],                    'trigger_flags': ['R', 'E', 'M'], 'set_flag': 'DF'},
+    # SR50AT_TCDT depends on SR50AT_SRTmp (built-in temp) — DC if DC, DF if R/E/DF/M
+    {'target': 'SR50AT_TCDT_Avg',    'sources': ['SR50AT_SRTmp_C_Avg'],              'trigger_flags': ['DC'], 'set_flag': 'DC'},
+    {'target': 'SR50AT_TCDT_Avg',    'sources': ['SR50AT_SRTmp_C_Avg'],              'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
+    # SR50AT_DBTCDT (snow depth) depends on SR50AT_TCDT — DF if R/E/DF/M, DC if DC
+    {'target': 'SR50AT_DBTCDT_Avg',  'sources': ['SR50AT_TCDT_Avg'],                 'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
+    {'target': 'SR50AT_DBTCDT_Avg',  'sources': ['SR50AT_TCDT_Avg'],                 'trigger_flags': ['DC'], 'set_flag': 'DC'},
 
     # -----------------------------------------------------------------------
     # SN-500 Net Radiometer
@@ -406,6 +442,7 @@ COLUMN_ALIASES = {
     'gtmp_Avg': 'Gtmp_Avg',
     'RHT_Avg': 'RHT_C_Avg',
     'WindDir_SD1': 'WindDir_SD1_WVT',
+    'SRTmp_C_Avg': 'SR50AT_SRTmp_C_Avg',
 }
 
 # Threshold-key equivalence for cases where the same variable appears under
@@ -417,6 +454,8 @@ THRESHOLD_KEY_EQUIVALENTS = {
     'RHT_Avg': ['RHT_C_Avg'],
     'WindDir_SD1': ['WindDir_SD1_WVT'],
     'WindDir_SD1_WVT': ['WindDir_SD1'],
+    'SRTmp_C_Avg': ['SR50AT_SRTmp_C_Avg'],
+    'SR50AT_SRTmp_C_Avg': ['SRTmp_C_Avg'],
 }
 
 # --- Helper Functions ---
@@ -2474,7 +2513,7 @@ def main():
                             column_config = {
                                 "R Max": st.column_config.NumberColumn(
                                     "R Max",
-                                    help="Height-based defaults: DBTCDT_Avg = H-50, SV_DBTCDT_Avg = H-40.",
+                                    help="Height-based defaults: DBTCDT_Avg/SR50AT_DBTCDT_Avg = H-50, SV_DBTCDT_Avg = H-40.",
                                 )
                             }
                             
@@ -3067,6 +3106,35 @@ def main():
                     mask_t = (vals > limit_series)
                     _append_flag(df, flag_col, mask_t, 'R')
 
+                # SR50AT Snow Depth Logic — Time-varying sensor height per deployment (H-50)
+                if 'SR50AT_DBTCDT_Avg' in df.columns:
+                    vals = pd.to_numeric(df['SR50AT_DBTCDT_Avg'], errors='coerce')
+                    flag_col = 'SR50AT_DBTCDT_Avg_Flag'
+                    if flag_col not in df.columns:
+                        df[flag_col] = ""
+
+                    default_sensor_height = 200
+                    limit_series = pd.Series(default_sensor_height - 50, index=df.index)
+
+                    for dep in current_deps:
+                        grp_data = instr_groups.get(dep['group'], {})
+                        grp_thresholds, grp_sensor_height = _get_grp_thresholds(grp_data)
+                        col_spec, _matched_key = get_threshold_spec_for_column(grp_thresholds, 'SR50AT_DBTCDT_Avg')
+                        if col_spec is None:
+                            continue
+                        try:
+                            t_s = pd.to_datetime(dep['start'])
+                            t_e = pd.to_datetime(dep['end']) + timedelta(hours=23, minutes=59)
+                            mask_time = (df['TIMESTAMP'] >= t_s) & (df['TIMESTAMP'] <= t_e)
+                            if mask_time.any():
+                                limit_series.loc[mask_time] = grp_sensor_height - 50
+                        except Exception as e:
+                            st.warning(f"Config Error in SR50AT_DBTCDT_Avg logic ({dep}): {e}")
+
+                    # R > H-50 (hard limit breach — sensor-height-dependent)
+                    mask_t = (vals > limit_series)
+                    _append_flag(df, flag_col, mask_t, 'R')
+
                 # Wind validity logic (NV): wind-derived channels are valid only when WS_ms_Avg > 0.
                 # Apply NV when WS_ms_Avg <= 0.
                 if 'WS_ms_Avg' in df.columns:
@@ -3193,10 +3261,10 @@ def main():
                     raw_vals = pd.to_numeric(df[col], errors='coerce')
                     mask_err_val = raw_vals.isin(ERROR_VALUES)
                     # Per RefSensorThresholds notes for DT: "E if 0 (no echo detected)"
-                    if col in ('DT_Avg', 'SV_DT_Avg'):
+                    if col in ('DT_Avg', 'SV_DT_Avg', 'SR50AT_DT_Avg'):
                         mask_err_val = mask_err_val | raw_vals.eq(0)
-                    # Per RefSensorThresholds: SV_Q_Avg "E if 0"
-                    if col == 'SV_Q_Avg':
+                    # Per RefSensorThresholds: Q "E if 0" (no valid echo quality)
+                    if col in ('SV_Q_Avg', 'Q_Avg', 'SR50AT_Q_Avg'):
                         mask_err_val = mask_err_val | raw_vals.eq(0)
                     # Per RefSensorThresholds: SV_Alert "E if 1" (alert active)
                     if col == 'SV_Alert':
@@ -3325,7 +3393,8 @@ def main():
                     # SnowVue10:   DT, Q, TCDT, snow(depth)
                     sr50_sf_cols = [
                         'DT_Avg', 'Q_Avg', 'TCDT_Avg', 'DBTCDT_Avg',
-                        'SV_DT_Avg', 'SV_Q_Avg', 'SV_TCDT_Avg', 'SV_DBTCDT_Avg'
+                        'SR50AT_DT_Avg', 'SR50AT_Q_Avg', 'SR50AT_TCDT_Avg', 'SR50AT_DBTCDT_Avg',
+                        'SV_DT_Avg', 'SV_Q_Avg', 'SV_TCDT_Avg', 'SV_DBTCDT_Avg',
                     ]
                     for sr_col in sr50_sf_cols:
                         if sr_col not in df.columns:
