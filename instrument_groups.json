@@ -225,6 +225,12 @@
                 "r_max": 70.0,
                 "c_min": null,
                 "c_max": null
+            },
+            "Gtmp_Avg": {
+                "r_min": -50.0,
+                "r_max": 70.0,
+                "c_min": null,
+                "c_max": null
             }
         }
     },
@@ -257,14 +263,8 @@
         }
     },
     "SR50AT": {
-        "sensor_height": 200,
+        "sensor_height": 246,
         "thresholds": {
-            "SR50AT_DT_Avg": {
-                "r_min": 50.0,
-                "r_max": 1000.0,
-                "c_min": null,
-                "c_max": null
-            },
             "SR50AT_Q_Avg": {
                 "r_min": 162.0,
                 "r_max": 600.0,
@@ -279,7 +279,7 @@
             },
             "SR50AT_DBTCDT_Avg": {
                 "r_min": 0.0,
-                "r_max": 150.0,
+                "r_max": 196.0,
                 "c_min": null,
                 "c_max": null
             },

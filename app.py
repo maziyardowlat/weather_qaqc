@@ -2487,18 +2487,10 @@ def main():
                                 cur_c_min = resolve_height_formula_token(cur_c_min, grp_sensor_height)
                                 cur_c_max = resolve_height_formula_token(cur_c_max, grp_sensor_height)
 
-                                # If DBTCDT_Avg max was previously saved as blank/null, restore
-                                # the expected sensor-height-dependent default in the editor.
-                                if c == 'DBTCDT_Avg' and (
-                                    cur_r_max == '' or cur_r_max is None or
-                                    (isinstance(cur_r_max, float) and np.isnan(cur_r_max))
-                                ):
+                                # Always recompute height-dependent R Max from current sensor height.
+                                if c in ('DBTCDT_Avg', 'SR50AT_DBTCDT_Avg'):
                                     cur_r_max = float(grp_sensor_height) - 50.0
-                                # Same behavior for SnowVue depth (H-40).
-                                if c == 'SV_DBTCDT_Avg' and (
-                                    cur_r_max == '' or cur_r_max is None or
-                                    (isinstance(cur_r_max, float) and np.isnan(cur_r_max))
-                                ):
+                                if c == 'SV_DBTCDT_Avg':
                                     cur_r_max = float(grp_sensor_height) - 40.0
                                 
                                 edit_data.append({
@@ -2538,8 +2530,8 @@ def main():
                                         except (ValueError, TypeError):
                                             return None
                                     r_max_val = _to_num_or_none(row.get('R Max'))
-                                    # Keep DBTCDT_Avg physically bounded even when left blank.
-                                    if row['Column'] == 'DBTCDT_Avg' and r_max_val is None:
+                                    # Keep DBTCDT_Avg / SR50AT_DBTCDT_Avg physically bounded even when left blank.
+                                    if row['Column'] in ('DBTCDT_Avg', 'SR50AT_DBTCDT_Avg') and r_max_val is None:
                                         r_max_val = float(grp_sensor_height) - 50.0
                                     # Keep SV_DBTCDT_Avg physically bounded even when left blank.
                                     if row['Column'] == 'SV_DBTCDT_Avg' and r_max_val is None:

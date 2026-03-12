@@ -174,7 +174,8 @@
             "AirT_C_Avg",
             "cv_atmp_310_Avg",
             "atmp_2m",
-            "CV_AirT_C_Avg"
+            "CV_AirT_C_Avg",
+            "CV_AirTemp_C_Avg"
         ],
         "unit": "Deg C",
         "unit_aliases": [
@@ -187,7 +188,8 @@
         "aliases": [
             "T109_AirT_C_Avg",
             "atmp_30_Avg",
-            "Air_55cm_T109_C_Avg"
+            "Air_55cm_T109_C_Avg",
+            "Air_T109_45cm_C_Avg"
         ],
         "unit": "Deg C",
         "unit_aliases": [
@@ -475,7 +477,8 @@
             "srtmp",
             "SR_Temp",
             "SRTmp_C_Avg",
-            "SR50AT_SRTmp_C_Avg"
+            "SR50AT_SRTmp_C_Avg",
+            "SR50_AirTemp_266cm_C_Avg"
         ],
         "unit": "Deg C",
         "unit_aliases": [
@@ -519,7 +522,8 @@
     "SR50AT_DBTCDT_Avg": {
         "aliases": [
             "SR50AT_DBTCDT_Avg",
-            "sr50at_snow"
+            "sr50at_snow",
+            "SnowDepth_Avg"
         ],
         "unit": "cm",
         "unit_aliases": [
@@ -533,7 +537,8 @@
             "Ground_Temp",
             "gtmp_Avg",
             "gtmp",
-            "gtmp_12_Avg"
+            "gtmp_12_Avg",
+            "Soil_T109_15cm_C_Avg"
         ],
         "unit": "Deg C",
         "unit_aliases": [
