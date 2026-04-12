@@ -27,7 +27,8 @@
             "batt_V",
             "BattV",
             "Battery_Voltage",
-            "BattV_Avg"
+            "BattV_Avg",
+            "Batt_Volt"
         ],
         "unit": "Volts",
         "unit_aliases": [
@@ -38,6 +39,7 @@
     "PTemp_C_Avg": {
         "aliases": [
             "Ptmp",
+            "ptmp",
             "Panel_Temp",
             "Ptmp_C_Avg",
             "PTemp",
@@ -56,8 +58,7 @@
             "stmp1",
             "stmp",
             "SoilTemp_1",
-            "stmp_Avg",
-            "atmp"
+            "stmp_Avg"
         ],
         "unit": "Deg C",
         "unit_aliases": [
@@ -128,7 +129,11 @@
             "Wind_Speed",
             "WS_ms_Avg",
             "WS_ms_S_WVT",
-            "CV_WS_ms_S_WVT"
+            "CV_WS_ms_S_WVT",
+            "CV_WS_Avg",
+            "CV_WS_S_WVT",
+            "WS_Avg",
+            "WS_S_WVT"
         ],
         "unit": "meters/second",
         "unit_aliases": [
@@ -140,14 +145,34 @@
         "aliases": [
             "wdir",
             "Wind_Dir",
+            "wind_dir",
             "WindDir",
             "WindDir_D1_WVT",
-            "CV_WindDir_D1_WVT"
+            "CV_WindDir_D1_WVT",
+            "CV_WD_D1_WVT",
+            "WD_D1_WVT",
+            "Original_WindDir"
         ],
         "unit": "degrees",
         "unit_aliases": [
             "degrees",
-            "deg"
+            "deg",
+            "m/s",
+            "M/S"
+        ]
+    },
+    "WindDir_Avg": {
+        "aliases": [
+            "WindDir_Avg",
+            "Original_WindDir_Avg",
+            "wind_dir_avg"
+        ],
+        "unit": "degrees",
+        "unit_aliases": [
+            "degrees",
+            "deg",
+            "m/s",
+            "M/S"
         ]
     },
     "MaxWS_ms_Avg": {
@@ -169,6 +194,8 @@
     "AirT_C_Avg": {
         "aliases": [
             "tmp",
+            "atmp",
+            "atmp_2",
             "AirTC",
             "AirTemp",
             "AirT_C_Avg",
@@ -221,7 +248,8 @@
             "Barometric_Pressure",
             "BP_hPa_Avg",
             "BP_mbar_Avg",
-            "bp"
+            "bp",
+            "Pressure"
         ],
         "unit": "hPa",
         "unit_aliases": [
@@ -259,6 +287,7 @@
     "TiltNS_deg_Avg": {
         "aliases": [
             "tiltNS",
+            "tilt_ns",
             "Tilt_NS",
             "TiltNS_deg_Avg"
         ],
@@ -271,6 +300,7 @@
     "TiltWE_deg_Avg": {
         "aliases": [
             "tiltWE",
+            "tilt_we",
             "Tilt_WE",
             "TiltWE_deg_Avg"
         ],
@@ -314,7 +344,8 @@
         "aliases": [
             "dt",
             "Distance_Target",
-            "DT_Avg"
+            "DT_Avg",
+            "DT"
         ],
         "unit": "",
         "unit_aliases": []
@@ -333,7 +364,8 @@
         "aliases": [
             "tcdt",
             "Target_Corrected_Dist",
-            "TCDT_Avg"
+            "TCDT_Avg",
+            "TCDT"
         ],
         "unit": "",
         "unit_aliases": []
@@ -343,7 +375,9 @@
             "snod",
             "Snow_Depth",
             "DBTCDT_Avg",
-            "snow"
+            "snow",
+            "DBTCDT",
+            "SnowDepth_Avg"
         ],
         "unit": "",
         "unit_aliases": []
@@ -464,12 +498,28 @@
             "WindDir_SD1_WVT",
             "WindDir_SD1",
             "wind_dir_sd",
-            "CV_WindDir_SD1_WVT"
+            "CV_WindDir_SD1_WVT",
+            "CV_WD_SD1_WVT",
+            "WD_SD1_WVT"
         ],
-        "unit": "m/s",
+        "unit": "degrees",
         "unit_aliases": [
+            "degrees",
+            "deg",
             "m/s",
             "M/S"
+        ]
+    },
+    "WS_Std": {
+        "aliases": [
+            "WS_Std",
+            "WS_ms_Std",
+            "wind_sd"
+        ],
+        "unit": "meters/second",
+        "unit_aliases": [
+            "meters/second",
+            "m/s"
         ]
     },
     "SR50AT_SRTmp_C_Avg": {
@@ -485,17 +535,6 @@
             "Deg C",
             "C",
             "degC"
-        ]
-    },
-    "SR50AT_DT_Avg": {
-        "aliases": [
-            "SR50AT_DT_Avg",
-            "sr50at_dt"
-        ],
-        "unit": "cm",
-        "unit_aliases": [
-            "cm",
-            "centimeters"
         ]
     },
     "SR50AT_Q_Avg": {
@@ -522,8 +561,7 @@
     "SR50AT_DBTCDT_Avg": {
         "aliases": [
             "SR50AT_DBTCDT_Avg",
-            "sr50at_snow",
-            "SnowDepth_Avg"
+            "sr50at_snow"
         ],
         "unit": "cm",
         "unit_aliases": [
@@ -538,7 +576,8 @@
             "gtmp_Avg",
             "gtmp",
             "gtmp_12_Avg",
-            "Soil_T109_15cm_C_Avg"
+            "Soil_T109_15cm_C_Avg",
+            "T107_C"
         ],
         "unit": "Deg C",
         "unit_aliases": [
@@ -747,7 +786,8 @@
             "Gtmp_15cm_Avg",
             "Temp4_15cm_Avg",
             "gtmp_15cm",
-            "gtmp_15cm_avg"
+            "gtmp_15cm_avg",
+            "gtmp_15_Avg"
         ],
         "unit": "Deg C",
         "unit_aliases": [

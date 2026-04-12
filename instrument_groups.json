@@ -118,6 +118,137 @@
             }
         }
     },
+    "ClimaVue50 G2": {
+        "sensor_height": 275,
+        "thresholds": {
+            "AirT_C_Avg": {
+                "r_min": -50.0,
+                "r_max": 60.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "RHT_C_Avg": {
+                "r_min": -40.0,
+                "r_max": 60.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "SlrFD_W_Avg": {
+                "r_min": 0.0,
+                "r_max": 1750.0,
+                "c_min": 0.0,
+                "c_max": 1360.0
+            },
+            "Rain_mm_Tot": {
+                "r_min": 0.0,
+                "r_max": 100.0,
+                "c_min": 0.0,
+                "c_max": 12.5
+            },
+            "Strikes_Tot": {
+                "r_min": 0.0,
+                "r_max": 65535.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "Dist_km_Avg": {
+                "r_min": 0.0,
+                "r_max": 40.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "Dist_km_Max": {
+                "r_min": 0.0,
+                "r_max": 40.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "Dist_km_TMx": {
+                "r_min": null,
+                "r_max": null,
+                "c_min": null,
+                "c_max": null
+            },
+            "WS_ms_Avg": {
+                "r_min": 0.0,
+                "r_max": 60.0,
+                "c_min": 0.0,
+                "c_max": 50.0
+            },
+            "WindDir": {
+                "r_min": 0.0,
+                "r_max": 359.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "MaxWS_ms": {
+                "r_min": 0.0,
+                "r_max": 60.0,
+                "c_min": 0.0,
+                "c_max": 60.0
+            },
+            "MaxWS_ms_TMx": {
+                "r_min": null,
+                "r_max": null,
+                "c_min": null,
+                "c_max": null
+            },
+            "Invalid_Wind_Avg": {
+                "r_min": 0.0,
+                "r_max": null,
+                "c_min": null,
+                "c_max": null
+            },
+            "VP_hPa_Avg": {
+                "r_min": 0.0,
+                "r_max": 47.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "RH": {
+                "r_min": 0.0,
+                "r_max": 100.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "BP_hPa_Avg": {
+                "r_min": 500.0,
+                "r_max": 1100.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "TiltNS_deg_Avg": {
+                "r_min": -90.0,
+                "r_max": 90.0,
+                "c_min": -3.0,
+                "c_max": 3.0
+            },
+            "TiltWE_deg_Avg": {
+                "r_min": -90.0,
+                "r_max": 90.0,
+                "c_min": -3.0,
+                "c_max": 3.0
+            },
+            "SlrTF_MJ_Tot": {
+                "r_min": 0.0,
+                "r_max": 1.575,
+                "c_min": 0.0,
+                "c_max": 1.215
+            },
+            "WindDir_SD1_WVT": {
+                "r_min": null,
+                "r_max": null,
+                "c_min": null,
+                "c_max": null
+            },
+            "CVMeta": {
+                "r_min": null,
+                "r_max": null,
+                "c_min": null,
+                "c_max": null
+            }
+        }
+    },
     "SR50": {
         "sensor_height": 200,
         "thresholds": {
@@ -142,6 +273,35 @@
             "DBTCDT_Avg": {
                 "r_min": 0.0,
                 "r_max": 150.0,
+                "c_min": null,
+                "c_max": null
+            }
+        }
+    },
+    "SR50A": {
+        "sensor_height": 229,
+        "thresholds": {
+            "DT_Avg": {
+                "r_min": 50.0,
+                "r_max": 1000.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "Q_Avg": {
+                "r_min": 162.0,
+                "r_max": 600.0,
+                "c_min": null,
+                "c_max": 210.0
+            },
+            "TCDT_Avg": {
+                "r_min": 50.0,
+                "r_max": 1000.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "DBTCDT_Avg": {
+                "r_min": 0.0,
+                "r_max": "H-50",
                 "c_min": null,
                 "c_max": null
             }
@@ -209,9 +369,83 @@
                 "c_min": 10.0,
                 "c_max": 16.0
             },
+            "RECORD": {
+                "r_min": 0.0,
+                "r_max": null,
+                "c_min": null,
+                "c_max": null
+            },
             "PTemp_C_Avg": {
                 "r_min": -40.0,
                 "r_max": 70.0,
+                "c_min": null,
+                "c_max": null
+            }
+        }
+    },
+    "5103": {
+        "sensor_height": 300,
+        "thresholds": {
+            "WS_ms_Avg": {
+                "r_min": 0.0,
+                "r_max": 100.0,
+                "c_min": 0.0,
+                "c_max": 50.0
+            },
+            "WindDir": {
+                "r_min": 0.0,
+                "r_max": 360.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "WS_Std": {
+                "r_min": null,
+                "r_max": null,
+                "c_min": null,
+                "c_max": null
+            },
+            "WindDir_SD1_WVT": {
+                "r_min": null,
+                "r_max": null,
+                "c_min": null,
+                "c_max": null
+            }
+        }
+    },
+    "HMP45": {
+        "sensor_height": 193,
+        "thresholds": {
+            "AirT_C_Avg": {
+                "r_min": -40.0,
+                "r_max": 60.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "RH": {
+                "r_min": 0.0,
+                "r_max": 100.0,
+                "c_min": null,
+                "c_max": null
+            }
+        }
+    },
+    "TBRG": {
+        "sensor_height": 125,
+        "thresholds": {
+            "Rain_mm_Tot": {
+                "r_min": 0.0,
+                "r_max": 100.0,
+                "c_min": 0.0,
+                "c_max": 12.5
+            }
+        }
+    },
+    "61205V": {
+        "sensor_height": 160,
+        "thresholds": {
+            "BP_hPa_Avg": {
+                "r_min": 500.0,
+                "r_max": 1100.0,
                 "c_min": null,
                 "c_max": null
             }

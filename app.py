@@ -96,13 +96,15 @@ SENSOR_THRESHOLDS = {
     # --- ClimaVue50 additional columns ---
     'Dist_km_Max':    {'r_min': 0.0,   'r_max': 40.0,   'c_min': None,  'c_max': None},
     'WindDir_SD1_WVT':{'r_min': None,  'r_max': None,   'c_min': None,  'c_max': None},
+    'WS_Std':         {'r_min': None,  'r_max': None,   'c_min': None,  'c_max': None},
+    'Invalid_Wind_Avg': {'r_min': 0.0, 'r_max': None,   'c_min': None,  'c_max': None},
+    'CVMeta':         {'r_min': None,  'r_max': None,   'c_min': None,  'c_max': None},
 
     # --- Timestamp-type columns (no numeric thresholds — Date/Time values) ---
     'MaxWS_ms_TMx':   {'r_min': None, 'r_max': None, 'c_min': None, 'c_max': None},
     'Dist_km_TMx':    {'r_min': None, 'r_max': None, 'c_min': None, 'c_max': None},
 
     # --- Campbell Scientific SR50AT Sonic Ranger (with built-in temperature sensor) ---
-    'SR50AT_DT_Avg':      {'r_min': 50.0,  'r_max': 1000.0, 'c_min': None,  'c_max': None},
     'SR50AT_Q_Avg':       {'r_min': 162.0, 'r_max': 600.0,  'c_min': None,  'c_max': 210.0},
     'SR50AT_TCDT_Avg':    {'r_min': 50.0,  'r_max': 1000.0, 'c_min': None,  'c_max': None},
     'SR50AT_DBTCDT_Avg':  {'r_min': 0.0,   'r_max': 'H-50', 'c_min': None,  'c_max': None},
@@ -160,7 +162,35 @@ INITIAL_INSTRUMENT_GROUPS = {
             'TiltWE_deg_Avg': {'r_min': -90,   'r_max': 90,    'c_min': -3,    'c_max': 3},
             'SlrTF_MJ_Tot':   {'r_min': 0,     'r_max': 1.575, 'c_min': 0,     'c_max': 1.215},
             'Dist_km_Max':    {'r_min': 0,     'r_max': 40,    'c_min': None,  'c_max': None},
+            'MaxWS_ms_TMx':   {'r_min': None,  'r_max': None,  'c_min': None,  'c_max': None},
+            'Dist_km_TMx':    {'r_min': None,  'r_max': None,  'c_min': None,  'c_max': None},
             'WindDir_SD1_WVT':{'r_min': None,  'r_max': None,  'c_min': None,  'c_max': None},
+        },
+    },
+    'ClimaVue50 G2': {
+        'sensor_height': 275,
+        'thresholds': {
+            'AirT_C_Avg':       {'r_min': -50,  'r_max': 60,    'c_min': None,  'c_max': None},
+            'RHT_C_Avg':        {'r_min': -40,  'r_max': 60,    'c_min': None,  'c_max': None},
+            'SlrFD_W_Avg':      {'r_min': 0,    'r_max': 1750,  'c_min': 0,     'c_max': 1360},
+            'Rain_mm_Tot':      {'r_min': 0,    'r_max': 100,   'c_min': 0,     'c_max': 12.5},
+            'Strikes_Tot':      {'r_min': 0,    'r_max': 65535, 'c_min': None,  'c_max': None},
+            'Dist_km_Avg':      {'r_min': 0,    'r_max': 40,    'c_min': None,  'c_max': None},
+            'Dist_km_Max':      {'r_min': 0,    'r_max': 40,    'c_min': None,  'c_max': None},
+            'Dist_km_TMx':      {'r_min': None, 'r_max': None,  'c_min': None,  'c_max': None},
+            'WS_ms_Avg':        {'r_min': 0,    'r_max': 60,    'c_min': 0,     'c_max': 50},
+            'WindDir':          {'r_min': 0,    'r_max': 359,   'c_min': None,  'c_max': None},
+            'MaxWS_ms':         {'r_min': 0,    'r_max': 60,    'c_min': 0,     'c_max': 60},
+            'MaxWS_ms_TMx':     {'r_min': None, 'r_max': None,  'c_min': None,  'c_max': None},
+            'Invalid_Wind_Avg': {'r_min': 0,    'r_max': None,  'c_min': None,  'c_max': None},
+            'VP_hPa_Avg':       {'r_min': 0,    'r_max': 47,    'c_min': None,  'c_max': None},
+            'RH':               {'r_min': 0,    'r_max': 100,   'c_min': None,  'c_max': None},
+            'BP_hPa_Avg':       {'r_min': 500,  'r_max': 1100,  'c_min': None,  'c_max': None},
+            'TiltNS_deg_Avg':   {'r_min': -90,  'r_max': 90,    'c_min': -3,    'c_max': 3},
+            'TiltWE_deg_Avg':   {'r_min': -90,  'r_max': 90,    'c_min': -3,    'c_max': 3},
+            'SlrTF_MJ_Tot':     {'r_min': 0,    'r_max': 1.575, 'c_min': 0,     'c_max': 1.215},
+            'WindDir_SD1_WVT':  {'r_min': None, 'r_max': None,  'c_min': None,  'c_max': None},
+            'CVMeta':           {'r_min': None, 'r_max': None,  'c_min': None,  'c_max': None},
         },
     },
     'SR50': {
@@ -171,6 +201,24 @@ INITIAL_INSTRUMENT_GROUPS = {
             'TCDT_Avg':    {'r_min': 50,  'r_max': 1000, 'c_min': None, 'c_max': None},
             'DBTCDT_Avg':  {'r_min': 0,   'r_max': 150,  'c_min': None, 'c_max': None},
             # Note: DBTCDT r_max = sensor_height (200) - 50 = 150
+        },
+    },
+    'SR50A': {
+        'sensor_height': 229,
+        'thresholds': {
+            'DT_Avg':      {'r_min': 50,  'r_max': 1000, 'c_min': None, 'c_max': None},
+            'Q_Avg':       {'r_min': 162, 'r_max': 600,  'c_min': None, 'c_max': 210},
+            'TCDT_Avg':    {'r_min': 50,  'r_max': 1000, 'c_min': None, 'c_max': None},
+            'DBTCDT_Avg':  {'r_min': 0,   'r_max': 'H-50', 'c_min': None, 'c_max': None},
+        },
+    },
+    '5103': {
+        'sensor_height': 300,
+        'thresholds': {
+            'WS_ms_Avg':       {'r_min': 0,    'r_max': 100,  'c_min': 0,     'c_max': 50},
+            'WindDir':         {'r_min': 0,    'r_max': 360,  'c_min': None,  'c_max': None},
+            'WS_Std':          {'r_min': None, 'r_max': None, 'c_min': None,  'c_max': None},
+            'WindDir_SD1_WVT': {'r_min': None, 'r_max': None, 'c_min': None,  'c_max': None},
         },
     },
     'NetRadiometer': {
@@ -191,8 +239,28 @@ INITIAL_INSTRUMENT_GROUPS = {
     'System': {
         'thresholds': {
             'BattV_Avg':   {'r_min': 9.6, 'r_max': 19, 'c_min': 10,   'c_max': 16},
+            'RECORD':      {'r_min': 0,   'r_max': None, 'c_min': None, 'c_max': None},
             'PTemp_C_Avg': {'r_min': -40,  'r_max': 70, 'c_min': None, 'c_max': None},
             'Ptmp_C_Avg':  {'r_min': -40,  'r_max': 70, 'c_min': None, 'c_max': None},
+        },
+    },
+    'HMP45': {
+        'sensor_height': 193,
+        'thresholds': {
+            'AirT_C_Avg': {'r_min': -40, 'r_max': 60,  'c_min': None, 'c_max': None},
+            'RH':         {'r_min': 0,   'r_max': 100, 'c_min': None, 'c_max': None},
+        },
+    },
+    'TBRG': {
+        'sensor_height': 125,
+        'thresholds': {
+            'Rain_mm_Tot': {'r_min': 0, 'r_max': 100, 'c_min': 0, 'c_max': 12.5},
+        },
+    },
+    '61205V': {
+        'sensor_height': 160,
+        'thresholds': {
+            'BP_hPa_Avg': {'r_min': 500, 'r_max': 1100, 'c_min': None, 'c_max': None},
         },
     },
     'T109': {
@@ -217,7 +285,6 @@ INITIAL_INSTRUMENT_GROUPS = {
     'SR50AT': {
         'sensor_height': 200,
         'thresholds': {
-            'SR50AT_DT_Avg':      {'r_min': 50,   'r_max': 1000, 'c_min': None, 'c_max': None},
             'SR50AT_Q_Avg':       {'r_min': 162,  'r_max': 600,  'c_min': None, 'c_max': 210},
             'SR50AT_TCDT_Avg':    {'r_min': 50,   'r_max': 1000, 'c_min': None, 'c_max': None},
             'SR50AT_DBTCDT_Avg':  {'r_min': 0,    'r_max': 'H-50', 'c_min': None, 'c_max': None},
@@ -310,6 +377,10 @@ DEPENDENCY_CONFIG = [
     {'target': 'WindDir',      'sources': ['WS_ms_Avg'],                         'trigger_flags': ['NV'], 'set_flag': 'NV'},
     {'target': 'MaxWS_ms',     'sources': ['WS_ms_Avg'],                         'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
     {'target': 'MaxWS_ms',     'sources': ['WS_ms_Avg'],                         'trigger_flags': ['NV'], 'set_flag': 'NV'},
+    {'target': 'WindDir_Avg',  'sources': ['WS_ms_Avg'],                         'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
+    {'target': 'WindDir_Avg',  'sources': ['WS_ms_Avg'],                         'trigger_flags': ['NV'], 'set_flag': 'NV'},
+    {'target': 'WS_Std',       'sources': ['WS_ms_Avg'],                         'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
+    {'target': 'WS_Std',       'sources': ['WS_ms_Avg'],                         'trigger_flags': ['NV'], 'set_flag': 'NV'},
 
     # ClimaVUE50 — Dist_km also receives DF when Strikes is R/E/DF.
     {'target': 'Dist_km_Avg',  'sources': ['Strikes_Tot'],                       'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
@@ -357,15 +428,10 @@ DEPENDENCY_CONFIG = [
     # NOTE: All SR50AT columns use SR50AT_ prefix to differentiate from SR50.
     # SR50AT has a built-in temp sensor (SRTmp) — temp correction uses SRTmp, NOT AirT_C_Avg.
     # -----------------------------------------------------------------------
-    # SR50AT_Q depends on SR50AT_DT
-    {'target': 'SR50AT_Q_Avg',       'sources': ['SR50AT_DT_Avg'],                   'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
-    # SR50AT_TCDT depends on SR50AT_DT — DF if R/E/M
-    {'target': 'SR50AT_TCDT_Avg',    'sources': ['SR50AT_DT_Avg'],                   'trigger_flags': ['R', 'E', 'M'], 'set_flag': 'DF'},
     # SR50AT_TCDT depends on SR50AT_Q — DC if C, DF if R/E/M
     {'target': 'SR50AT_TCDT_Avg',    'sources': ['SR50AT_Q_Avg'],                    'trigger_flags': ['C'], 'set_flag': 'DC'},
     {'target': 'SR50AT_TCDT_Avg',    'sources': ['SR50AT_Q_Avg'],                    'trigger_flags': ['R', 'E', 'M'], 'set_flag': 'DF'},
-    # SR50AT_TCDT depends on SR50AT_SRTmp (built-in temp) — DC if DC, DF if R/E/DF/M
-    {'target': 'SR50AT_TCDT_Avg',    'sources': ['SR50AT_SRTmp_C_Avg'],              'trigger_flags': ['DC'], 'set_flag': 'DC'},
+    # SR50AT_TCDT depends on SR50AT_SRTmp (built-in temp) — DF if R/E/DF/M
     {'target': 'SR50AT_TCDT_Avg',    'sources': ['SR50AT_SRTmp_C_Avg'],              'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
     # SR50AT_DBTCDT (snow depth) depends on SR50AT_TCDT — DF if R/E/DF/M, DC if DC
     {'target': 'SR50AT_DBTCDT_Avg',  'sources': ['SR50AT_TCDT_Avg'],                 'trigger_flags': ['R', 'E', 'DF', 'M'], 'set_flag': 'DF'},
@@ -436,6 +502,20 @@ SOLAR_COLUMNS = ['SlrFD_W_Avg', 'SWin_Avg', 'SWout_Avg']
 # These columns skip the threshold loop but still receive dependency/NV/BV/PT/LR flags.
 TIMESTAMP_LIKE_COLUMNS = {'MaxWS_ms_TMx', 'Dist_km_TMx'}
 
+# Wind-direction validity thresholds can vary by deployed sensor family.
+# Example: RM Young 05103 direction is not valid until wind speed exceeds 1.1 m/s.
+WIND_DIRECTION_NV_LIMITS = {'5103': 1.1}
+
+# Some exported units depend on the deployed instrument group even when the
+# canonical output column name is shared across sensors.
+SENSOR_SPECIFIC_OUTPUT_UNITS = {
+    'WindDir_SD1_WVT': {
+        'ClimaVue50': 'm/s',
+        'ClimaVue50 G2': 'degrees',
+        '5103': 'degrees',
+    },
+}
+
 # Canonical sensor column names with accepted alias spellings.
 COLUMN_ALIASES = {
     'stmp_Avg': 'Stmp_Avg',
@@ -450,6 +530,8 @@ COLUMN_ALIASES = {
 THRESHOLD_KEY_EQUIVALENTS = {
     'MaxWS_ms_Avg': ['MaxWS_ms'],
     'MaxWS_ms': ['MaxWS_ms_Avg'],
+    'WindDir_Avg': ['WindDir'],
+    'WindDir': ['WindDir_Avg'],
     'RHT_C_Avg': ['RHT_Avg'],
     'RHT_Avg': ['RHT_C_Avg'],
     'WindDir_SD1': ['WindDir_SD1_WVT'],
@@ -607,6 +689,50 @@ def load_station_configs():
 
 def save_station_configs(configs):
     save_json_file(STATION_CONFIG_FILE, configs)
+
+def resolve_output_unit(col, df, mapping, station_name=None):
+    """
+    Resolve the exported unit for a column, allowing sensor-specific overrides
+    when a canonical column is shared by multiple instrument families.
+    """
+    info = mapping.get(col)
+    if not isinstance(info, dict):
+        return "nan"
+
+    unit_val = info.get('unit', 'nan') or 'nan'
+    canonical_col = canonicalize_column_name(col)
+    overrides = SENSOR_SPECIFIC_OUTPUT_UNITS.get(canonical_col, {})
+    if not overrides or station_name is None or 'TIMESTAMP' not in df.columns:
+        return unit_val
+
+    ts = pd.to_datetime(df['TIMESTAMP'], errors='coerce').dropna()
+    if ts.empty:
+        return unit_val
+
+    df_start = ts.min()
+    df_end = ts.max()
+    station_data = load_station_configs().get(station_name, {})
+    deployments = station_data.get('deployments', [])
+    matching_units = set()
+
+    for dep in deployments:
+        dep_group = dep.get('group')
+        dep_unit = overrides.get(dep_group)
+        if dep_unit is None:
+            continue
+        try:
+            dep_start = pd.to_datetime(dep.get('start'))
+            dep_end = pd.to_datetime(dep.get('end'))
+        except Exception:
+            continue
+        if pd.isna(dep_start) or pd.isna(dep_end):
+            continue
+        if dep_start <= df_end and dep_end >= df_start:
+            matching_units.add(dep_unit)
+
+    if len(matching_units) == 1:
+        return matching_units.pop()
+    return unit_val
 
 def parse_toa5_header(file):
     """
@@ -1063,7 +1189,7 @@ def process_file_data(uploaded_file, mapping, metadata, data_id, station_id, ski
         st.error(f"Error processing file {uploaded_file.name}: {e}")
         return pd.DataFrame()
 
-def write_csv_with_units(df, save_path):
+def write_csv_with_units(df, save_path, station_name=None):
     """
     Writes DataFrame to CSV with a second row containing units.
     Units are looked up from column_mapping.json.
@@ -1090,14 +1216,11 @@ def write_csv_with_units(df, save_path):
             elif col.endswith('_Flag'): 
                 unit_val = 'nan'
             else:
-                # Lookup in mapping
-                if col in mapping:
-                    info = mapping[col]
-                    if isinstance(info, dict):
-                        unit_val = info.get('unit', 'nan')
-                        # If blank in JSON, use nan or empty? User sample had 'nan' for flags.
-                        # Let's align with observed data "TS,RN,nan,Volts..."
-                        if unit_val == "": unit_val = "nan"
+                unit_val = resolve_output_unit(col, df, mapping, station_name=station_name)
+                # If blank in JSON, use nan or empty? User sample had 'nan' for flags.
+                # Let's align with observed data "TS,RN,nan,Volts..."
+                if unit_val == "":
+                    unit_val = "nan"
             
             units_row.append(unit_val)
         
@@ -2352,7 +2475,7 @@ def main():
                             save_path = os.path.join(output_dir, filename)
                             
                             # Use helper to include units row
-                            write_csv_with_units(df_final, save_path)
+                            write_csv_with_units(df_final, save_path, station_name=station_name)
                             
                             st.success(f"Successfully processed {len(df_final)} records!")
                             st.success(f"Saved to: {save_path}")
@@ -3127,14 +3250,35 @@ def main():
                     mask_t = (vals > limit_series)
                     _append_flag(df, flag_col, mask_t, 'R')
 
-                # Wind validity logic (NV): wind-derived channels are valid only when WS_ms_Avg > 0.
-                # Apply NV when WS_ms_Avg <= 0.
+                # Wind validity logic (NV): wind-derived channels are valid only when WS_ms_Avg
+                # exceeds the sensor-specific minimum (0 by default, 1.1 m/s for 5103 direction).
                 if 'WS_ms_Avg' in df.columns:
                     ws = pd.to_numeric(df['WS_ms_Avg'], errors='coerce')
                     mask_no_wind = ws.notna() & (ws <= 0)
-                    if mask_no_wind.any():
+                    wind_dir_limit = pd.Series(0.0, index=df.index, dtype=float)
+                    for dep in current_deps:
+                        limit = WIND_DIRECTION_NV_LIMITS.get(dep.get('group'))
+                        if limit is None:
+                            continue
+                        try:
+                            t_s = pd.to_datetime(dep['start'])
+                            t_e = pd.to_datetime(dep['end']) + timedelta(hours=23, minutes=59)
+                            mask_time = (df['TIMESTAMP'] >= t_s) & (df['TIMESTAMP'] <= t_e)
+                            if mask_time.any():
+                                wind_dir_limit.loc[mask_time] = float(limit)
+                        except Exception as e:
+                            st.warning(f"Config Error in wind-direction validity logic ({dep}): {e}")
+                    mask_no_wind_dir = ws.notna() & (ws <= wind_dir_limit)
+                    if mask_no_wind_dir.any():
                         if 'WindDir' in df.columns:
                             fc = 'WindDir_Flag'
+                            if fc not in df.columns:
+                                df[fc] = ""
+                            _append_flag(df, fc, mask_no_wind_dir, 'NV')
+
+                    if mask_no_wind.any():
+                        if 'WindDir_Avg' in df.columns:
+                            fc = 'WindDir_Avg_Flag'
                             if fc not in df.columns:
                                 df[fc] = ""
                             _append_flag(df, fc, mask_no_wind, 'NV')
@@ -3147,6 +3291,12 @@ def main():
                             if fc_wsd not in df.columns:
                                 df[fc_wsd] = ""
                             _append_flag(df, fc_wsd, mask_no_wind, 'NV')
+
+                        if 'WS_Std' in df.columns:
+                            fc = 'WS_Std_Flag'
+                            if fc not in df.columns:
+                                df[fc] = ""
+                            _append_flag(df, fc, mask_no_wind, 'NV')
 
                         # MaxWS_ms NV when wind speed is 0
                         # Per RefSensorThresholds: "Valid only if wind > 0"
@@ -3253,10 +3403,13 @@ def main():
                     raw_vals = pd.to_numeric(df[col], errors='coerce')
                     mask_err_val = raw_vals.isin(ERROR_VALUES)
                     # Per RefSensorThresholds notes for DT: "E if 0 (no echo detected)"
-                    if col in ('DT_Avg', 'SV_DT_Avg', 'SR50AT_DT_Avg'):
+                    if col in ('DT_Avg', 'SV_DT_Avg'):
                         mask_err_val = mask_err_val | raw_vals.eq(0)
                     # Per RefSensorThresholds: Q "E if 0" (no valid echo quality)
                     if col in ('SV_Q_Avg', 'Q_Avg', 'SR50AT_Q_Avg'):
+                        mask_err_val = mask_err_val | raw_vals.eq(0)
+                    # Per RefSensorThresholds: SR50AT_TCDT "E if 0 (no echo detected)"
+                    if col == 'SR50AT_TCDT_Avg':
                         mask_err_val = mask_err_val | raw_vals.eq(0)
                     # Per RefSensorThresholds: SV_Alert "E if 1" (alert active)
                     if col == 'SV_Alert':
@@ -3381,11 +3534,12 @@ def main():
                     months = df['TIMESTAMP'].dt.month
                     snow_free_months = [6, 7, 8, 9]
                     # Apply SF to all snow-depth workflow outputs marked V,SF in RefSensorThresholds:
-                    # SR50/SR50AT: DT, Q, TCDT, snow(depth)
+                    # SR50/SR50A: DT, Q, TCDT, snow(depth)
+                    # SR50AT:      Q, TCDT, snow(depth)
                     # SnowVue10:   DT, Q, TCDT, snow(depth)
                     sr50_sf_cols = [
                         'DT_Avg', 'Q_Avg', 'TCDT_Avg', 'DBTCDT_Avg',
-                        'SR50AT_DT_Avg', 'SR50AT_Q_Avg', 'SR50AT_TCDT_Avg', 'SR50AT_DBTCDT_Avg',
+                        'SR50AT_Q_Avg', 'SR50AT_TCDT_Avg', 'SR50AT_DBTCDT_Avg',
                         'SV_DT_Avg', 'SV_Q_Avg', 'SV_TCDT_Avg', 'SV_DBTCDT_Avg',
                     ]
                     for sr_col in sr50_sf_cols:
@@ -3481,7 +3635,7 @@ def main():
                         save_path = os.path.join(output_dir, out_name)
                         
                         # Use helper to include units row
-                        write_csv_with_units(df_qc, save_path)
+                        write_csv_with_units(df_qc, save_path, station_name=station_name)
 
                         st.success("QA/QC Complete!")
                         if out_name.endswith("_tidy_historical.csv"):
