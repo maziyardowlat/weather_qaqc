@@ -786,10 +786,15 @@ def load_csv_preview(file, skip_rows=None):
     if skip_rows is None:
         skip_rows = [0, 2, 3]  # TOA5 standard: env header, units, processing type
     try:
-        df = pd.read_csv(file, skiprows=skip_rows, nrows=5, keep_default_na=False)
+        if file.name.endswith(('.xlsx', '.xls')):
+            # Excel historical/logger exports usually have row 1 as headers and row 2 as units.
+            df = pd.read_excel(file, skiprows=[1], nrows=5, keep_default_na=False)
+        else:
+            df = pd.read_csv(file, skiprows=skip_rows, nrows=5, keep_default_na=False)
         file.seek(0)
         return df
     except Exception as e:
+        file.seek(0)
         return None
 
 def parse_field_report(pdf_file):
@@ -1942,14 +1947,23 @@ def main():
                         # against this specific file's date range.
                         try:
                             file.seek(0)
-                            _ts_df = pd.read_csv(
-                                file,
-                                skiprows=skip_rows,   # honour the user's row-skip selection
-                                usecols=['TIMESTAMP'],
-                                na_values=['NAN', '"NAN"', ''],
-                                keep_default_na=True,
-                                low_memory=False
-                            )
+                            if file.name.endswith(('.xlsx', '.xls')):
+                                _ts_df = pd.read_excel(
+                                    file,
+                                    skiprows=[1],  # Skip Excel units row
+                                    usecols=['TIMESTAMP'],
+                                    na_values=['NAN', '"NAN"', ''],
+                                    keep_default_na=True
+                                )
+                            else:
+                                _ts_df = pd.read_csv(
+                                    file,
+                                    skiprows=skip_rows,   # honour the user's row-skip selection
+                                    usecols=['TIMESTAMP'],
+                                    na_values=['NAN', '"NAN"', ''],
+                                    keep_default_na=True,
+                                    low_memory=False
+                                )
                             _ts_series = pd.to_datetime(_ts_df['TIMESTAMP'], errors='coerce').dropna()
                             file.seek(0)  # reset for the full read later
                         except Exception:
@@ -2091,8 +2105,32 @@ def main():
 
                     # Show all auto-detected windows as read-only reference
                     if auto_visit_windows:
-                        st.write("**All visits overlapping this file's date range:**")
-                        for vw_in, vw_out in auto_visit_windows:
+                        visit_preview_limit = 5
+                        show_all_visits = st.toggle(
+                            "Show all overlapping visit windows",
+                            value=len(auto_visit_windows) <= visit_preview_limit,
+                            key=f"show_all_visits_{i}",
+                            help="Turn on to display every overlapping MetadataLog visit for this file."
+                        )
+                        visible_visits = (
+                            auto_visit_windows
+                            if show_all_visits
+                            else auto_visit_windows[:visit_preview_limit]
+                        )
+
+                        if show_all_visits:
+                            st.write("**All visits overlapping this file's date range:**")
+                        else:
+                            hidden_count = max(len(auto_visit_windows) - len(visible_visits), 0)
+                            st.write(
+                                f"**Showing {len(visible_visits)} of {len(auto_visit_windows)} overlapping visits:**"
+                            )
+                            if hidden_count:
+                                st.caption(
+                                    f"{hidden_count} additional visit window(s) hidden to keep the mapping section visible."
+                                )
+
+                        for vw_in, vw_out in visible_visits:
                             st.write(f"  • {vw_in.strftime('%Y-%m-%d %H:%M')} → {vw_out.strftime('%Y-%m-%d %H:%M')}")
 
                     # Field In / Field Out — always shown, pre-filled if a match was found
@@ -2145,7 +2183,16 @@ def main():
                                     break
                             current_mapping[col] = target
 
+                        target_options = sorted(set(
+                            list(mapping_ref.keys())
+                            + list(DEFAULT_THRESHOLDS.keys())
+                            + list(THRESHOLD_KEY_EQUIVALENTS.keys())
+                            + [canonicalize_column_name(c) for c in columns]
+                            + columns
+                        ))
+
                         st.caption("Column Mapping (Uncheck 'Include' to remove column)")
+                        st.caption("Use canonical app column names in the Target dropdown. Metadata short names like `meta_cv` and `wind_inv` map to targets such as `CVMeta` and `Invalid_Wind_Avg`.")
                         map_df = pd.DataFrame({
                             "Include": [True] * len(columns),
                             "Source": columns,
@@ -2165,7 +2212,7 @@ def main():
                                 "Source": st.column_config.TextColumn(disabled=True),
                                 "Target": st.column_config.SelectboxColumn(
                                     label="Target Column",
-                                    options=list(set(list(mapping_ref.keys()) + columns)), # Unique options
+                                    options=target_options,
                                     required=True
                                 )
                             },
