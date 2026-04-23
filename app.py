@@ -595,33 +595,238 @@ def is_timestamp_like_output_column(name):
     """
     return base_output_column_name(name) in TIMESTAMP_LIKE_COLUMNS
 
-def uniquify_mapping_targets(mapping):
+def normalize_metadata_height(value):
     """
-    Convert a Source -> Target mapping into a collision-safe mapping by
-    appending ``_2``, ``_3``, ... to repeated target names.
+    Normalize metadata height values for matching/grouping.
+    Returns an int/float when meaningful, otherwise None.
+    """
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+    text = str(value).strip()
+    if not text or text.lower() in {"nan", "none", "null", "-9999"}:
+        return None
+    try:
+        num = float(text)
+    except ValueError:
+        return text
+    return int(num) if float(num).is_integer() else num
+
+def make_sensor_family_key(sensor, height=None):
+    sensor_text = str(sensor).strip() if sensor is not None else ""
+    height_norm = normalize_metadata_height(height)
+    return json.dumps({"sensor": sensor_text, "height": height_norm}, sort_keys=True)
+
+def sensor_family_label(sensor, height=None):
+    sensor_text = str(sensor).strip() if sensor is not None else ""
+    height_norm = normalize_metadata_height(height)
+    if sensor_text and height_norm is not None:
+        return f"{sensor_text} @ {height_norm} cm"
+    if sensor_text:
+        return sensor_text
+    if height_norm is not None:
+        return f"{height_norm} cm"
+    return "Unknown family"
+
+@st.cache_data(show_spinner=False)
+def parse_metadata_family_context(raw_bytes):
+    """
+    Parse the MetadataLog Params/EventLog sheets into a lightweight family
+    lookup used during compilation.
+    """
+    context = {
+        "params_by_parameter": {},
+        "family_sort_keys": {},
+        "family_labels": {},
+    }
+    if not raw_bytes or openpyxl is None:
+        return context
+
+    def _to_date(val):
+        if val is None:
+            return None
+        if hasattr(val, "date"):
+            try:
+                return val.date()
+            except Exception:
+                pass
+        if isinstance(val, (int, np.integer)):
+            text = str(int(val))
+            if len(text) == 8:
+                try:
+                    return datetime.strptime(text, "%Y%m%d").date()
+                except ValueError:
+                    return None
+            return None
+        if isinstance(val, (float, np.floating)):
+            if pd.isna(val):
+                return None
+            return _to_date(int(val))
+        parsed = pd.to_datetime(str(val).strip(), errors="coerce")
+        return None if pd.isna(parsed) else parsed.date()
+
+    wb = openpyxl.load_workbook(io.BytesIO(raw_bytes), data_only=True)
+
+    if "Params" in wb.sheetnames:
+        ws = wb["Params"]
+        headers = [cell.value for cell in ws[1]]
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if all(v is None for v in row):
+                continue
+            rd = dict(zip(headers, row))
+            parameter = str(rd.get("parameter") or "").strip()
+            if not parameter:
+                continue
+            sensor = str(rd.get("sensor") or "").strip()
+            height = normalize_metadata_height(rd.get("height"))
+            family_key = make_sensor_family_key(sensor, height)
+            entry = {
+                "sensor": sensor,
+                "height": height,
+                "family_key": family_key,
+                "family_label": sensor_family_label(sensor, height),
+                "short_name": str(rd.get("short_name") or "").strip(),
+            }
+            bucket = context["params_by_parameter"].setdefault(parameter, [])
+            if entry not in bucket:
+                bucket.append(entry)
+            context["family_labels"][family_key] = entry["family_label"]
+
+    family_first_seen = {}
+    if "EventLog" in wb.sheetnames:
+        ws = wb["EventLog"]
+        headers = [cell.value for cell in ws[1]]
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if all(v is None for v in row):
+                continue
+            rd = dict(zip(headers, row))
+            if str(rd.get("Event_type") or "").strip() != "Equip Deploy":
+                continue
+            sensor = str(rd.get("Equip_model") or "").strip()
+            height = normalize_metadata_height(rd.get("Heigh_depth_cm"))
+            family_key = make_sensor_family_key(sensor, height)
+            event_date = _to_date(rd.get("Date"))
+            prior_date = family_first_seen.get(family_key)
+            if (
+                family_key not in family_first_seen
+                or prior_date is None
+                or (event_date is not None and event_date < prior_date)
+            ):
+                family_first_seen[family_key] = event_date
+            context["family_labels"].setdefault(family_key, sensor_family_label(sensor, height))
+
+    large_rank = 10**9
+    for family_key, label in context["family_labels"].items():
+        first_seen = family_first_seen.get(family_key)
+        rank = first_seen.toordinal() if first_seen is not None else large_rank
+        context["family_sort_keys"][family_key] = (rank, label.lower(), family_key)
+
+    return context
+
+def resolve_source_family_key(source_col, metadata_context=None):
+    """
+    Resolve a raw source column to a metadata sensor family when possible.
+    Falls back to a source-specific synthetic family to avoid unsafe merging.
+    """
+    if isinstance(metadata_context, dict):
+        matches = metadata_context.get("params_by_parameter", {}).get(str(source_col).strip(), [])
+        family_keys = []
+        for entry in matches:
+            fk = entry.get("family_key")
+            if fk and fk not in family_keys:
+                family_keys.append(fk)
+        if len(family_keys) == 1:
+            return family_keys[0]
+    return f"source::{source_col}"
+
+def build_compiled_mapping(mapping, metadata_context=None):
+    """
+    Convert a Source -> Target mapping into a compiled mapping that:
+    - collapses same-family aliases into one compiled column
+    - assigns _2/_3 suffixes only to genuinely different metadata families
     """
     if not isinstance(mapping, dict):
-        return mapping
+        return mapping, []
 
-    counts = {}
-    resolved = {}
-    for source, target in mapping.items():
-        if target is None:
-            resolved[source] = target
-            continue
+    families_by_target = {}
+    first_seen_order = {}
+    source_details = []
 
-        target_text = str(target).strip()
+    for order_idx, (source, target) in enumerate(mapping.items()):
+        target_text = "" if target is None else str(target).strip()
         if target_text in ["", "REMOVE"]:
-            resolved[source] = target_text
+            source_details.append({
+                "source": source,
+                "selected_target": target_text,
+                "compiled_column": target_text,
+                "family_key": None,
+                "family_label": None,
+            })
             continue
 
         base_target = base_output_column_name(target_text)
-        counts[base_target] = counts.get(base_target, 0) + 1
-        resolved[source] = (
-            base_target
-            if counts[base_target] == 1
-            else f"{base_target}_{counts[base_target]}"
-        )
+        family_key = resolve_source_family_key(source, metadata_context)
+        family_label = None
+        if isinstance(metadata_context, dict):
+            family_label = metadata_context.get("family_labels", {}).get(family_key)
+        if not family_label:
+            family_label = str(source)
+
+        families_by_target.setdefault(base_target, set()).add(family_key)
+        first_seen_order.setdefault((base_target, family_key), order_idx)
+        source_details.append({
+            "source": source,
+            "selected_target": base_target,
+            "compiled_column": None,
+            "family_key": family_key,
+            "family_label": family_label,
+        })
+
+    compiled_names = {}
+    for base_target, families in families_by_target.items():
+        def _family_sort_key(family_key):
+            metadata_sort = None
+            if isinstance(metadata_context, dict):
+                metadata_sort = metadata_context.get("family_sort_keys", {}).get(family_key)
+            if metadata_sort is None:
+                metadata_sort = (10**9, str(family_key).lower(), family_key)
+            return metadata_sort + (first_seen_order.get((base_target, family_key), 10**9),)
+
+        for idx, family_key in enumerate(sorted(families, key=_family_sort_key), start=1):
+            compiled_names[(base_target, family_key)] = (
+                base_target if idx == 1 else f"{base_target}_{idx}"
+            )
+
+    resolved = {}
+    detail_rows = []
+    for item in source_details:
+        source = item["source"]
+        selected_target = item["selected_target"]
+        if selected_target in ["", "REMOVE"]:
+            compiled = selected_target
+        else:
+            compiled = compiled_names[(selected_target, item["family_key"])]
+        resolved[source] = compiled
+        detail_rows.append({
+            "Source": source,
+            "Selected Target": selected_target,
+            "Family": item["family_label"],
+            "Compiled Column": compiled,
+        })
+
+    return resolved, detail_rows
+
+def uniquify_mapping_targets(mapping, metadata_context=None):
+    """
+    Backwards-compatible wrapper around the compiled-mapping builder.
+    Same-family aliases collapse into one compiled target; different families
+    receive ``_2``, ``_3``, ... suffixes as needed.
+    """
+    resolved, _detail_rows = build_compiled_mapping(mapping, metadata_context=metadata_context)
     return resolved
 
 def resolve_height_formula_token(value, sensor_height):
@@ -1226,7 +1431,16 @@ def parse_metadata_log(xlsx_file, raw_filename=None, df_timestamps=None):
     return result
 
 
-def process_file_data(uploaded_file, mapping, metadata, data_id, station_id, skip_rows=None):
+def process_file_data(
+    uploaded_file,
+    mapping,
+    metadata,
+    data_id,
+    station_id,
+    skip_rows=None,
+    mapping_is_compiled=True,
+    metadata_context=None,
+):
     """
     Reads the full CSV or Excel file, applies mapping, adds metadata columns.
     Returns processed DataFrame.
@@ -1257,23 +1471,37 @@ def process_file_data(uploaded_file, mapping, metadata, data_id, station_id, ski
         # Reset file pointer for next read if needed (though Streamlit handles this usually)
         uploaded_file.seek(0)
 
-        # Guard against duplicate target collisions even if a caller passes in
-        # a raw Source -> Target mapping that has not yet been de-duplicated.
-        mapping = uniquify_mapping_targets(mapping)
+        # The UI now passes a family-aware compiled mapping. Only rebuild it
+        # when a caller explicitly provides raw Source -> Target selections.
+        if not mapping_is_compiled:
+            mapping, _detail_rows = build_compiled_mapping(
+                mapping,
+                metadata_context=metadata_context,
+            )
 
-        # Rename columns
-        # Invert mapping? No, mapping is Source -> Target
-        # df.rename(columns=mapping)
-        # However, mapping might be incomplete, so only rename known keys
-        # 1. Identify Drop Columns
-        cols_to_drop = [k for k, v in mapping.items() if v == "REMOVE" and k in df.columns]
-        if cols_to_drop:
-            df = df.drop(columns=cols_to_drop)
-            
-        # 2. Rename remaining
-        clean_mapping = {k: v for k, v in mapping.items() if k in df.columns and v != k and v != "REMOVE"}
-        if clean_mapping:
-            df = df.rename(columns=clean_mapping)
+        # Apply mapping. When multiple raw columns resolve to the same compiled
+        # target (same-family aliases), merge them into one output column by
+        # preferring the first populated source in raw-file order.
+        merged_df = pd.DataFrame(index=df.index)
+        for col in df.columns:
+            target = mapping.get(col, col)
+            if target == "REMOVE":
+                continue
+
+            if target not in merged_df.columns:
+                merged_df[target] = df[col]
+                continue
+
+            existing = merged_df[target]
+            incoming = df[col]
+            keep_existing = existing.notna()
+            try:
+                keep_existing = keep_existing & (existing.astype(str).str.strip() != "")
+            except Exception:
+                pass
+            merged_df[target] = existing.where(keep_existing, incoming)
+
+        df = merged_df
 
         # Canonicalize alias column names (e.g., stmp_Avg -> Stmp_Avg)
         df = normalize_df_column_aliases(df)
@@ -1960,6 +2188,10 @@ def main():
         st.session_state.pop("metalog_raw",  None)
         st.session_state.pop("metalog_name", None)
 
+    metadata_family_context = {}
+    if "metalog_raw" in st.session_state:
+        metadata_family_context = parse_metadata_family_context(st.session_state["metalog_raw"])
+
     st.sidebar.divider()
 
     output_dir = st.sidebar.text_input("Output Directory", value="data")
@@ -2333,24 +2565,25 @@ def main():
                             else:
                                 raw_mapping[row['Source']] = "REMOVE"
 
-                        final_mapping = uniquify_mapping_targets(raw_mapping)
+                        final_mapping, compiled_detail_rows = build_compiled_mapping(
+                            raw_mapping,
+                            metadata_context=metadata_family_context,
+                        )
 
                         duplicate_rows = []
-                        for source, selected_target in raw_mapping.items():
+                        for row in compiled_detail_rows:
+                            selected_target = row["Selected Target"]
+                            compiled_target = row["Compiled Column"]
                             if selected_target in [None, "", "REMOVE"]:
                                 continue
-                            compiled_target = final_mapping.get(source)
-                            if compiled_target != base_output_column_name(selected_target):
-                                duplicate_rows.append({
-                                    "Source": source,
-                                    "Selected Target": base_output_column_name(selected_target),
-                                    "Compiled Column": compiled_target
-                                })
+                            if compiled_target != selected_target:
+                                duplicate_rows.append(row)
 
                         if duplicate_rows:
                             st.info(
-                                "Duplicate target names detected. The compiled file will keep "
-                                "the first target as-is and rename later matches with `_2`, `_3`, etc."
+                                "Duplicate target names detected. The compiled file will group "
+                                "same-sensor aliases together and only use `_2`, `_3`, etc. for "
+                                "different metadata families."
                             )
                             st.dataframe(
                                 pd.DataFrame(duplicate_rows),
