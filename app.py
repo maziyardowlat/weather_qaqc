@@ -540,10 +540,89 @@ THRESHOLD_KEY_EQUIVALENTS = {
     'SR50AT_SRTmp_C_Avg': ['SRTmp_C_Avg'],
 }
 
+DEPENDENCY_KEY_EQUIVALENTS = {
+    'MaxWS_ms_Avg': ['MaxWS_ms'],
+    'MaxWS_ms': ['MaxWS_ms_Avg'],
+    'RHT_C_Avg': ['RHT_Avg'],
+    'RHT_Avg': ['RHT_C_Avg'],
+    'WindDir_SD1': ['WindDir_SD1_WVT'],
+    'WindDir_SD1_WVT': ['WindDir_SD1'],
+    'SRTmp_C_Avg': ['SR50AT_SRTmp_C_Avg'],
+    'SR50AT_SRTmp_C_Avg': ['SRTmp_C_Avg'],
+}
+
+DUPLICATE_TARGET_SUFFIX_RE = re.compile(r"^(.*)_(\d+)$")
+
 # --- Helper Functions ---
 
 def canonicalize_column_name(name):
     return COLUMN_ALIASES.get(name, name)
+
+def base_output_column_name(name):
+    """
+    Return the canonical base name for an output column.
+    Runtime duplicate suffixes like ``_2`` / ``_3`` are stripped first.
+    """
+    if not isinstance(name, str):
+        return name
+    base_name = name.strip()
+    m = DUPLICATE_TARGET_SUFFIX_RE.fullmatch(base_name)
+    if m:
+        base_name = m.group(1)
+    return canonicalize_column_name(base_name)
+
+def output_column_variant_suffix(name):
+    """
+    Return the duplicate-family suffix for an output column, e.g. ``_2``.
+    Returns an empty string for the base/original column.
+    """
+    if not isinstance(name, str):
+        return ""
+    m = DUPLICATE_TARGET_SUFFIX_RE.fullmatch(name.strip())
+    return f"_{m.group(2)}" if m else ""
+
+def variant_output_column_name(base_name, variant_suffix=""):
+    """
+    Compose a canonical output-column name plus an optional duplicate suffix.
+    """
+    base = base_output_column_name(base_name)
+    return f"{base}{variant_suffix}" if variant_suffix else base
+
+def is_timestamp_like_output_column(name):
+    """
+    Whether an output column should be treated like a timestamp/time-of-max field.
+    Duplicate variants inherit the same behavior as the base canonical column.
+    """
+    return base_output_column_name(name) in TIMESTAMP_LIKE_COLUMNS
+
+def uniquify_mapping_targets(mapping):
+    """
+    Convert a Source -> Target mapping into a collision-safe mapping by
+    appending ``_2``, ``_3``, ... to repeated target names.
+    """
+    if not isinstance(mapping, dict):
+        return mapping
+
+    counts = {}
+    resolved = {}
+    for source, target in mapping.items():
+        if target is None:
+            resolved[source] = target
+            continue
+
+        target_text = str(target).strip()
+        if target_text in ["", "REMOVE"]:
+            resolved[source] = target_text
+            continue
+
+        base_target = base_output_column_name(target_text)
+        counts[base_target] = counts.get(base_target, 0) + 1
+        resolved[source] = (
+            base_target
+            if counts[base_target] == 1
+            else f"{base_target}_{counts[base_target]}"
+        )
+    return resolved
 
 def resolve_height_formula_token(value, sensor_height):
     """
@@ -572,7 +651,7 @@ def threshold_key_variants(col_name):
     Returns equivalent threshold keys to try for a column name.
     """
     variants = []
-    for key in [col_name, canonicalize_column_name(col_name)]:
+    for key in [base_output_column_name(col_name), canonicalize_column_name(col_name), col_name]:
         if key not in variants:
             variants.append(key)
 
@@ -581,6 +660,26 @@ def threshold_key_variants(col_name):
     while i < len(variants):
         key = variants[i]
         for alt in THRESHOLD_KEY_EQUIVALENTS.get(key, []):
+            if alt not in variants:
+                variants.append(alt)
+        i += 1
+    return variants
+
+def dependency_key_variants(col_name):
+    """
+    Returns equivalent dependency keys to try for a column name.
+    This is intentionally narrower than threshold-key matching because some
+    columns share thresholds without being the same dependency family.
+    """
+    variants = []
+    for key in [base_output_column_name(col_name), canonicalize_column_name(col_name), col_name]:
+        if key not in variants:
+            variants.append(key)
+
+    i = 0
+    while i < len(variants):
+        key = variants[i]
+        for alt in DEPENDENCY_KEY_EQUIVALENTS.get(key, []):
             if alt not in variants:
                 variants.append(alt)
         i += 1
@@ -695,12 +794,13 @@ def resolve_output_unit(col, df, mapping, station_name=None):
     Resolve the exported unit for a column, allowing sensor-specific overrides
     when a canonical column is shared by multiple instrument families.
     """
-    info = mapping.get(col)
+    lookup_col = base_output_column_name(col)
+    info = mapping.get(lookup_col)
     if not isinstance(info, dict):
         return "nan"
 
     unit_val = info.get('unit', 'nan') or 'nan'
-    canonical_col = canonicalize_column_name(col)
+    canonical_col = lookup_col
     overrides = SENSOR_SPECIFIC_OUTPUT_UNITS.get(canonical_col, {})
     if not overrides or station_name is None or 'TIMESTAMP' not in df.columns:
         return unit_val
@@ -1156,6 +1256,10 @@ def process_file_data(uploaded_file, mapping, metadata, data_id, station_id, ski
         
         # Reset file pointer for next read if needed (though Streamlit handles this usually)
         uploaded_file.seek(0)
+
+        # Guard against duplicate target collisions even if a caller passes in
+        # a raw Source -> Target mapping that has not yet been de-duplicated.
+        mapping = uniquify_mapping_targets(mapping)
 
         # Rename columns
         # Invert mapping? No, mapping is Source -> Target
@@ -2219,13 +2323,40 @@ def main():
                             use_container_width=True
                         )
                         
-                        # Create dictionary from editor
-                        # If Include is False, map to "REMOVE" which is handled in process_file_data
+                        # Build the raw Source -> Target selections first, then
+                        # resolve duplicate targets into collision-safe compiled
+                        # names such as WindDir_2, WindDir_3, etc.
+                        raw_mapping = {}
                         for index, row in edited_map.iterrows():
                             if row['Include']:
-                                final_mapping[row['Source']] = row['Target']
+                                raw_mapping[row['Source']] = row['Target']
                             else:
-                                final_mapping[row['Source']] = "REMOVE"
+                                raw_mapping[row['Source']] = "REMOVE"
+
+                        final_mapping = uniquify_mapping_targets(raw_mapping)
+
+                        duplicate_rows = []
+                        for source, selected_target in raw_mapping.items():
+                            if selected_target in [None, "", "REMOVE"]:
+                                continue
+                            compiled_target = final_mapping.get(source)
+                            if compiled_target != base_output_column_name(selected_target):
+                                duplicate_rows.append({
+                                    "Source": source,
+                                    "Selected Target": base_output_column_name(selected_target),
+                                    "Compiled Column": compiled_target
+                                })
+
+                        if duplicate_rows:
+                            st.info(
+                                "Duplicate target names detected. The compiled file will keep "
+                                "the first target as-is and rename later matches with `_2`, `_3`, etc."
+                            )
+                            st.dataframe(
+                                pd.DataFrame(duplicate_rows),
+                                use_container_width=True,
+                                hide_index=True
+                            )
                     
                     # Optional per-file caution-column selection (after mapping is known)
                     if add_caution:
@@ -2386,7 +2517,7 @@ def main():
                                     continue
                                 # Timestamp-like columns should not have flag columns
                                 # (same treatment as TIMESTAMP).
-                                if col in TIMESTAMP_LIKE_COLUMNS:
+                                if is_timestamp_like_output_column(col):
                                     df_final[col] = pd.to_datetime(df_final[col], errors='coerce')
                                     ts_flag_col = f"{col}_Flag"
                                     if ts_flag_col in df_final.columns:
@@ -2456,10 +2587,8 @@ def main():
                                         st.warning(f"Invalid Field Visit Time: {f_in} – {f_out}: {e}")
 
                             # Ensure timestamp-like TMx fields never carry flag columns.
-                            for ts_col in TIMESTAMP_LIKE_COLUMNS:
-                                ts_fc = f"{ts_col}_Flag"
-                                if ts_fc in df_final.columns:
-                                    df_final = df_final.drop(columns=[ts_fc])
+                            for ts_col in [c for c in df_final.columns if c.endswith("_Flag") and is_timestamp_like_output_column(c[:-5])]:
+                                df_final = df_final.drop(columns=[ts_col])
 
                             # RECORD missingness should also be marked M.
                             if 'RECORD' in df_final.columns:
@@ -2942,7 +3071,7 @@ def main():
                 # ---------------------------------------------------------------
 
                 # Helper: resolve a limit value that may be a column reference or sentinel string
-                def resolve_limit(v, data_slice, sensor_height):
+                def resolve_limit(v, data_slice, sensor_height, variant_suffix=""):
                     """
                     Resolves a threshold value to a numeric scalar or Series.
                     Handles:
@@ -2959,8 +3088,13 @@ def main():
                         hm = re.match(r'^H([+-]\d+(?:\.\d+)?)$', v)
                         if hm:
                             return sensor_height + float(hm.group(1))
-                        if v in data_slice.columns:
-                            return pd.to_numeric(data_slice[v], errors='coerce')
+                        for candidate in [
+                            variant_output_column_name(v, variant_suffix) if variant_suffix else None,
+                            base_output_column_name(v),
+                            v,
+                        ]:
+                            if candidate and candidate in data_slice.columns:
+                                return pd.to_numeric(data_slice[candidate], errors='coerce')
                     return v
 
                 # Helper: append a flag token to a flag column, skipping rows already flagged M/ERR/E
@@ -3013,12 +3147,37 @@ def main():
                     for fc in [c for c in df.columns if c.endswith("_Flag")]:
                         df[fc] = df[fc].apply(_normalize_flag_cell)
 
-                def _resolve_dep_col(df, col_name):
+                def _variant_family_columns(df, col_name):
+                    """
+                    Return all DataFrame columns that belong to the same canonical
+                    family as ``col_name`` (including suffixed duplicates).
+                    Preserves the DataFrame's existing column order.
+                    """
+                    candidate_bases = set(dependency_key_variants(col_name))
+                    return [
+                        c for c in df.columns
+                        if not c.endswith('_Flag')
+                        and base_output_column_name(c) in candidate_bases
+                    ]
+
+                def _resolve_dep_col(df, col_name, variant_suffix=""):
                     """
                     Resolve a dependency column name to an existing DataFrame column,
                     checking known threshold/dependency aliases (e.g., MaxWS_ms <-> MaxWS_ms_Avg).
+                    When a duplicate-family suffix is provided, prefer the matching
+                    suffixed source column first, then fall back to the base column.
                     """
-                    for candidate in threshold_key_variants(col_name):
+                    preferred = []
+                    for candidate in dependency_key_variants(col_name):
+                        if variant_suffix:
+                            preferred.append(variant_output_column_name(candidate, variant_suffix))
+                        preferred.append(base_output_column_name(candidate))
+
+                    seen = set()
+                    for candidate in preferred:
+                        if candidate in seen:
+                            continue
+                        seen.add(candidate)
                         if candidate in df.columns:
                             return candidate
                     return None
@@ -3039,7 +3198,7 @@ def main():
 
                 for col in qc_cols:
                     # Skip timestamp-like columns (no numeric thresholds apply)
-                    if col in TIMESTAMP_LIKE_COLUMNS:
+                    if is_timestamp_like_output_column(col):
                         df[col] = pd.to_datetime(df[col], errors='coerce')
                         ts_flag_col = f"{col}_Flag"
                         if ts_flag_col in df.columns:
@@ -3047,7 +3206,8 @@ def main():
                         continue
 
                     # --- Determine base R and C limits from SENSOR_THRESHOLDS ---
-                    base_spec = SENSOR_THRESHOLDS.get(col)
+                    variant_suffix = output_column_variant_suffix(col)
+                    base_spec, _base_spec_key = get_threshold_spec_for_column(SENSOR_THRESHOLDS, col)
 
                     # If column not in SENSOR_THRESHOLDS, check if any deployment group covers it
                     if base_spec is None:
@@ -3091,10 +3251,10 @@ def main():
 
                     if not relevant_deps:
                         # No deployment override — use base limits directly (fast path)
-                        r_min_eff = resolve_limit(base_r_min, df, default_sensor_height)
-                        r_max_eff = resolve_limit(base_r_max, df, default_sensor_height)
-                        c_min_eff = resolve_limit(base_c_min, df, default_sensor_height)
-                        c_max_eff = resolve_limit(base_c_max, df, default_sensor_height)
+                        r_min_eff = resolve_limit(base_r_min, df, default_sensor_height, variant_suffix)
+                        r_max_eff = resolve_limit(base_r_max, df, default_sensor_height, variant_suffix)
+                        c_min_eff = resolve_limit(base_c_min, df, default_sensor_height, variant_suffix)
+                        c_max_eff = resolve_limit(base_c_max, df, default_sensor_height, variant_suffix)
 
                         # R flag (hard limit)
                         if r_min_eff is not None or r_max_eff is not None:
@@ -3119,23 +3279,23 @@ def main():
                     else:
                         # Time-varying: build per-row limit Series for both R and C
                         r_min_series = pd.Series(
-                            resolve_limit(base_r_min, df, default_sensor_height)
+                            resolve_limit(base_r_min, df, default_sensor_height, variant_suffix)
                             if not isinstance(base_r_min, str) else np.nan,
                             index=df.index, dtype=float
                         )
                         r_max_series = pd.Series(
-                            resolve_limit(base_r_max, df, default_sensor_height)
+                            resolve_limit(base_r_max, df, default_sensor_height, variant_suffix)
                             if not isinstance(base_r_max, str) else np.nan,
                             index=df.index, dtype=float
                         )
                         # C-limit series — also time-varying from group thresholds
                         c_min_series = pd.Series(
-                            resolve_limit(base_c_min, df, default_sensor_height)
+                            resolve_limit(base_c_min, df, default_sensor_height, variant_suffix)
                             if base_c_min is not None and not isinstance(base_c_min, str) else np.nan,
                             index=df.index, dtype=float
                         )
                         c_max_series = pd.Series(
-                            resolve_limit(base_c_max, df, default_sensor_height)
+                            resolve_limit(base_c_max, df, default_sensor_height, variant_suffix)
                             if base_c_max is not None and not isinstance(base_c_max, str) else np.nan,
                             index=df.index, dtype=float
                         )
@@ -3169,16 +3329,16 @@ def main():
                                     continue  # unknown format, skip
 
                                 # Resolve R limits for this deployment window
-                                g_r_min_v = resolve_limit(g_r_min, df.loc[mask_time], grp_sensor_height)
-                                g_r_max_v = resolve_limit(g_r_max, df.loc[mask_time], grp_sensor_height)
+                                g_r_min_v = resolve_limit(g_r_min, df.loc[mask_time], grp_sensor_height, variant_suffix)
+                                g_r_max_v = resolve_limit(g_r_max, df.loc[mask_time], grp_sensor_height, variant_suffix)
                                 if g_r_min_v is not None:
                                     r_min_series.loc[mask_time] = g_r_min_v
                                 if g_r_max_v is not None:
                                     r_max_series.loc[mask_time] = g_r_max_v
 
                                 # Resolve C limits for this deployment window
-                                g_c_min_v = resolve_limit(g_c_min, df.loc[mask_time], grp_sensor_height)
-                                g_c_max_v = resolve_limit(g_c_max, df.loc[mask_time], grp_sensor_height)
+                                g_c_min_v = resolve_limit(g_c_min, df.loc[mask_time], grp_sensor_height, variant_suffix)
+                                g_c_max_v = resolve_limit(g_c_max, df.loc[mask_time], grp_sensor_height, variant_suffix)
                                 if g_c_min_v is not None:
                                     c_min_series.loc[mask_time] = g_c_min_v
                                 if g_c_max_v is not None:
@@ -3206,101 +3366,46 @@ def main():
 
 
                 # 2. Dynamic/Logic Flags
-                # Snow Depth Logic - Time-varying sensor height per deployment
-                if 'DBTCDT_Avg' in df.columns:
-                     vals = pd.to_numeric(df['DBTCDT_Avg'], errors='coerce')
-                     flag_col = 'DBTCDT_Avg_Flag'
+                # Snow-depth hard-limit logic — duplicate variants inherit the same
+                # base rule but are evaluated on their own compiled columns.
+                snow_depth_rules = [
+                    ('DBTCDT_Avg', 50),
+                    ('SV_DBTCDT_Avg', 40),
+                    ('SR50AT_DBTCDT_Avg', 50),
+                ]
+                for depth_col_base, height_offset in snow_depth_rules:
+                    for depth_col in _variant_family_columns(df, depth_col_base):
+                        vals = pd.to_numeric(df[depth_col], errors='coerce')
+                        flag_col = f'{depth_col}_Flag'
+                        if flag_col not in df.columns:
+                            df[flag_col] = ""
 
-                     # Build time-varying limit for T > H-50.
-                     # Start with a default, then override only from groups that
-                     # explicitly define DBTCDT_Avg thresholds (e.g., SR50).
-                     default_sensor_height = 200
-                     limit_series = pd.Series(default_sensor_height - 50, index=df.index)
+                        default_sensor_height = 200
+                        limit_series = pd.Series(default_sensor_height - height_offset, index=df.index)
 
-                     for dep in current_deps:
-                         grp_data = instr_groups.get(dep['group'], {})
-                         grp_thresholds, grp_sensor_height = _get_grp_thresholds(grp_data)
-                         col_spec, _matched_key = get_threshold_spec_for_column(grp_thresholds, 'DBTCDT_Avg')
-                         if col_spec is None:
-                             continue
+                        for dep in current_deps:
+                            grp_data = instr_groups.get(dep['group'], {})
+                            grp_thresholds, grp_sensor_height = _get_grp_thresholds(grp_data)
+                            col_spec, _matched_key = get_threshold_spec_for_column(grp_thresholds, depth_col_base)
+                            if col_spec is None:
+                                continue
+                            try:
+                                t_s = pd.to_datetime(dep['start'])
+                                t_e = pd.to_datetime(dep['end']) + timedelta(hours=23, minutes=59)
+                                mask_time = (df['TIMESTAMP'] >= t_s) & (df['TIMESTAMP'] <= t_e)
+                                if mask_time.any():
+                                    limit_series.loc[mask_time] = grp_sensor_height - height_offset
+                            except Exception as e:
+                                st.warning(f"Config Error in {depth_col_base} logic ({dep}): {e}")
 
-                         try:
-                             t_s = pd.to_datetime(dep['start'])
-                             t_e = pd.to_datetime(dep['end']) + timedelta(hours=23, minutes=59)
-
-                             mask_time = (df['TIMESTAMP'] >= t_s) & (df['TIMESTAMP'] <= t_e)
-                             if mask_time.any():
-                                 # Apply sensor height - 50 for this SR50-covered period.
-                                 limit_series.loc[mask_time] = grp_sensor_height - 50
-                         except Exception as e:
-                             st.warning(f"Config Error in DBTCDT_Avg logic ({dep}): {e}")
-
-                     # R > H-50 (hard limit breach — sensor-height-dependent)
-                     mask_t = (vals > limit_series)
-                     _append_flag(df, flag_col, mask_t, 'R')
-
-                # SnowVue10 Snow Depth Logic — Time-varying sensor height per deployment (H-40)
-                if 'SV_DBTCDT_Avg' in df.columns:
-                    vals = pd.to_numeric(df['SV_DBTCDT_Avg'], errors='coerce')
-                    flag_col = 'SV_DBTCDT_Avg_Flag'
-                    if flag_col not in df.columns:
-                        df[flag_col] = ""
-
-                    default_sensor_height = 200
-                    limit_series = pd.Series(default_sensor_height - 40, index=df.index)
-
-                    for dep in current_deps:
-                        grp_data = instr_groups.get(dep['group'], {})
-                        grp_thresholds, grp_sensor_height = _get_grp_thresholds(grp_data)
-                        col_spec, _matched_key = get_threshold_spec_for_column(grp_thresholds, 'SV_DBTCDT_Avg')
-                        if col_spec is None:
-                            continue
-                        try:
-                            t_s = pd.to_datetime(dep['start'])
-                            t_e = pd.to_datetime(dep['end']) + timedelta(hours=23, minutes=59)
-                            mask_time = (df['TIMESTAMP'] >= t_s) & (df['TIMESTAMP'] <= t_e)
-                            if mask_time.any():
-                                limit_series.loc[mask_time] = grp_sensor_height - 40
-                        except Exception as e:
-                            st.warning(f"Config Error in SV_DBTCDT_Avg logic ({dep}): {e}")
-
-                    # R > H-40 (hard limit breach — sensor-height-dependent)
-                    mask_t = (vals > limit_series)
-                    _append_flag(df, flag_col, mask_t, 'R')
-
-                # SR50AT Snow Depth Logic — Time-varying sensor height per deployment (H-50)
-                if 'SR50AT_DBTCDT_Avg' in df.columns:
-                    vals = pd.to_numeric(df['SR50AT_DBTCDT_Avg'], errors='coerce')
-                    flag_col = 'SR50AT_DBTCDT_Avg_Flag'
-                    if flag_col not in df.columns:
-                        df[flag_col] = ""
-
-                    default_sensor_height = 200
-                    limit_series = pd.Series(default_sensor_height - 50, index=df.index)
-
-                    for dep in current_deps:
-                        grp_data = instr_groups.get(dep['group'], {})
-                        grp_thresholds, grp_sensor_height = _get_grp_thresholds(grp_data)
-                        col_spec, _matched_key = get_threshold_spec_for_column(grp_thresholds, 'SR50AT_DBTCDT_Avg')
-                        if col_spec is None:
-                            continue
-                        try:
-                            t_s = pd.to_datetime(dep['start'])
-                            t_e = pd.to_datetime(dep['end']) + timedelta(hours=23, minutes=59)
-                            mask_time = (df['TIMESTAMP'] >= t_s) & (df['TIMESTAMP'] <= t_e)
-                            if mask_time.any():
-                                limit_series.loc[mask_time] = grp_sensor_height - 50
-                        except Exception as e:
-                            st.warning(f"Config Error in SR50AT_DBTCDT_Avg logic ({dep}): {e}")
-
-                    # R > H-50 (hard limit breach — sensor-height-dependent)
-                    mask_t = (vals > limit_series)
-                    _append_flag(df, flag_col, mask_t, 'R')
+                        mask_t = vals > limit_series
+                        _append_flag(df, flag_col, mask_t, 'R')
 
                 # Wind validity logic (NV): wind-derived channels are valid only when WS_ms_Avg
                 # exceeds the sensor-specific minimum (0 by default, 1.1 m/s for 5103 direction).
-                if 'WS_ms_Avg' in df.columns:
-                    ws = pd.to_numeric(df['WS_ms_Avg'], errors='coerce')
+                for ws_col in _variant_family_columns(df, 'WS_ms_Avg'):
+                    variant_suffix = output_column_variant_suffix(ws_col)
+                    ws = pd.to_numeric(df[ws_col], errors='coerce')
                     mask_no_wind = ws.notna() & (ws <= 0)
                     wind_dir_limit = pd.Series(0.0, index=df.index, dtype=float)
                     for dep in current_deps:
@@ -3316,54 +3421,35 @@ def main():
                         except Exception as e:
                             st.warning(f"Config Error in wind-direction validity logic ({dep}): {e}")
                     mask_no_wind_dir = ws.notna() & (ws <= wind_dir_limit)
-                    if mask_no_wind_dir.any():
-                        if 'WindDir' in df.columns:
-                            fc = 'WindDir_Flag'
-                            if fc not in df.columns:
-                                df[fc] = ""
-                            _append_flag(df, fc, mask_no_wind_dir, 'NV')
+
+                    wind_dir_col = _resolve_dep_col(df, 'WindDir', variant_suffix)
+                    if mask_no_wind_dir.any() and wind_dir_col:
+                        fc = f'{wind_dir_col}_Flag'
+                        if fc not in df.columns:
+                            df[fc] = ""
+                        _append_flag(df, fc, mask_no_wind_dir, 'NV')
 
                     if mask_no_wind.any():
-                        if 'WindDir_Avg' in df.columns:
-                            fc = 'WindDir_Avg_Flag'
-                            if fc not in df.columns:
-                                df[fc] = ""
-                            _append_flag(df, fc, mask_no_wind, 'NV')
-
-                        # WindDir standard-deviation variants NV when wind speed is 0.
-                        for wsd_col in ['WindDir_SD1_WVT', 'WindDir_SD1']:
-                            if wsd_col not in df.columns:
+                        for partner_base in ['WindDir_Avg', 'WindDir_SD1_WVT', 'WindDir_SD1', 'WS_Std', 'MaxWS_ms', 'MaxWS_ms_Avg', 'MaxWS_ms_Max']:
+                            partner_col = _resolve_dep_col(df, partner_base, variant_suffix)
+                            if not partner_col:
                                 continue
-                            fc_wsd = f'{wsd_col}_Flag'
-                            if fc_wsd not in df.columns:
-                                df[fc_wsd] = ""
-                            _append_flag(df, fc_wsd, mask_no_wind, 'NV')
-
-                        if 'WS_Std' in df.columns:
-                            fc = 'WS_Std_Flag'
-                            if fc not in df.columns:
-                                df[fc] = ""
-                            _append_flag(df, fc, mask_no_wind, 'NV')
-
-                        # MaxWS_ms NV when wind speed is 0
-                        # Per RefSensorThresholds: "Valid only if wind > 0"
-                        for maxws in ['MaxWS_ms', 'MaxWS_ms_Avg', 'MaxWS_ms_Max']:
-                            if maxws not in df.columns:
-                                continue
-                            fc_mw = f'{maxws}_Flag'
-                            if fc_mw not in df.columns:
-                                df[fc_mw] = ""
-                            _append_flag(df, fc_mw, mask_no_wind, 'NV')
+                            fc_partner = f'{partner_col}_Flag'
+                            if fc_partner not in df.columns:
+                                df[fc_partner] = ""
+                            _append_flag(df, fc_partner, mask_no_wind, 'NV')
 
                 # Lightning-distance validity flags:
                 # Dist_km_Avg and Dist_km_Max are valid only when Strikes_Tot > 0.
                 # Apply NV directly when Strikes_Tot <= 0.
-                if 'Strikes_Tot' in df.columns:
-                    strikes = pd.to_numeric(df['Strikes_Tot'], errors='coerce')
+                for strikes_col in _variant_family_columns(df, 'Strikes_Tot'):
+                    variant_suffix = output_column_variant_suffix(strikes_col)
+                    strikes = pd.to_numeric(df[strikes_col], errors='coerce')
                     mask_no_strikes = strikes.notna() & (strikes <= 0)
                     if mask_no_strikes.any():
-                        for dist_col in ['Dist_km_Avg', 'Dist_km_Max']:
-                            if dist_col not in df.columns:
+                        for dist_base in ['Dist_km_Avg', 'Dist_km_Max']:
+                            dist_col = _resolve_dep_col(df, dist_base, variant_suffix)
+                            if not dist_col:
                                 continue
                             fc = f'{dist_col}_Flag'
                             if fc not in df.columns:
@@ -3413,14 +3499,14 @@ def main():
                             night_indices = ts_vals[mask_night].index
 
                             if len(night_indices) > 0:
-                                for scol in SOLAR_COLUMNS:
+                                for scol in [c for c in df.columns if not c.endswith('_Flag') and base_output_column_name(c) in SOLAR_COLUMNS]:
                                     if scol not in df.columns:
                                         continue
                                     vals = pd.to_numeric(df.loc[night_indices, scol], errors='coerce').fillna(0)
                                     # Per RefSensorThresholds notes:
                                     #   SlrFD_W_Avg: Z when > 0 at night
                                     #   SWin_Avg/SWout_Avg: Z when < 0 at night
-                                    if scol == 'SlrFD_W_Avg':
+                                    if base_output_column_name(scol) == 'SlrFD_W_Avg':
                                         mask_z = vals > 0.0001
                                     else:
                                         mask_z = vals < -0.0001
@@ -3442,24 +3528,25 @@ def main():
                 for col in qc_cols:
                     if col not in df.columns:
                         continue
-                    if col in TIMESTAMP_LIKE_COLUMNS:
+                    if is_timestamp_like_output_column(col):
                         continue
                     flag_col = f"{col}_Flag"
                     if flag_col not in df.columns:
                         df[flag_col] = ""
                     raw_vals = pd.to_numeric(df[col], errors='coerce')
                     mask_err_val = raw_vals.isin(ERROR_VALUES)
+                    base_col = base_output_column_name(col)
                     # Per RefSensorThresholds notes for DT: "E if 0 (no echo detected)"
-                    if col in ('DT_Avg', 'SV_DT_Avg'):
+                    if base_col in ('DT_Avg', 'SV_DT_Avg'):
                         mask_err_val = mask_err_val | raw_vals.eq(0)
                     # Per RefSensorThresholds: Q "E if 0" (no valid echo quality)
-                    if col in ('SV_Q_Avg', 'Q_Avg', 'SR50AT_Q_Avg'):
+                    if base_col in ('SV_Q_Avg', 'Q_Avg', 'SR50AT_Q_Avg'):
                         mask_err_val = mask_err_val | raw_vals.eq(0)
                     # Per RefSensorThresholds: SR50AT_TCDT "E if 0 (no echo detected)"
-                    if col == 'SR50AT_TCDT_Avg':
+                    if base_col == 'SR50AT_TCDT_Avg':
                         mask_err_val = mask_err_val | raw_vals.eq(0)
                     # Per RefSensorThresholds: SV_Alert "E if 1" (alert active)
-                    if col == 'SV_Alert':
+                    if base_col == 'SV_Alert':
                         mask_err_val = mask_err_val | raw_vals.eq(1)
                     if mask_err_val.any():
                         # E is exclusive: if present, suppress all other flags in this cell.
@@ -3474,28 +3561,30 @@ def main():
                     ('PTemp_C_Avg', 'R', 'PT'),
                     ('Ptmp_C_Avg', 'R', 'PT'),
                 ]
-                for src_col, trigger_flag, prop_flag in system_propagations:
-                    src_fc = f"{src_col}_Flag"
-                    if src_fc not in df.columns:
-                        continue
-                    # Find rows where the source column has the trigger flag
-                    mask_src = df[src_fc].fillna("").astype(str).str.contains(rf'\b{trigger_flag}\b', regex=True)
-                    if not mask_src.any():
-                        continue
-                    # Propagate to all other sensor columns (skip metadata, TIMESTAMP, RECORD, and the source itself)
-                    skip_cols = {'TIMESTAMP', 'RECORD', src_col, src_fc}
-                    for col in df.columns:
-                        if col.endswith('_Flag') and col not in skip_cols:
-                            _append_flag(df, col, mask_src, prop_flag)
+                for src_col_base, trigger_flag, prop_flag in system_propagations:
+                    for src_col in _variant_family_columns(df, src_col_base):
+                        src_fc = f"{src_col}_Flag"
+                        if src_fc not in df.columns:
+                            continue
+                        # Find rows where the source column has the trigger flag
+                        mask_src = df[src_fc].fillna("").astype(str).str.contains(rf'\b{trigger_flag}\b', regex=True)
+                        if not mask_src.any():
+                            continue
+                        # Propagate to all other sensor columns (skip metadata, TIMESTAMP, RECORD, and the source itself)
+                        skip_cols = {'TIMESTAMP', 'RECORD', src_col, src_fc}
+                        for col in df.columns:
+                            if col.endswith('_Flag') and col not in skip_cols:
+                                _append_flag(df, col, mask_src, prop_flag)
 
                 # 6. Critical Flags (PT — panel temperature flagged R)
                 # If PTemp is flagged R, warn the user (data may be unreliable system-wide)
-                for pt_col in ['PTemp_C_Avg_Flag', 'Ptmp_C_Avg_Flag']:
-                    if pt_col in df.columns:
-                        pf = df[pt_col].fillna("").astype(str)
-                        mask_crit = pf.str.contains(r'\bR\b', regex=True)
-                        if mask_crit.any():
-                            st.warning(f"⚠️ Panel Temperature (PT) flagged R in {mask_crit.sum()} records — system-wide data quality may be affected.")
+                for pt_col_base in ['PTemp_C_Avg', 'Ptmp_C_Avg']:
+                    for pt_col in [f"{c}_Flag" for c in _variant_family_columns(df, pt_col_base)]:
+                        if pt_col in df.columns:
+                            pf = df[pt_col].fillna("").astype(str)
+                            mask_crit = pf.str.contains(r'\bR\b', regex=True)
+                            if mask_crit.any():
+                                st.warning(f"⚠️ Panel Temperature (PT) flagged R in {mask_crit.sum()} records — system-wide data quality may be affected.")
 
                 # 6.5 RECORD missingness guard (M) in QA/QC stage.
                 # (Numbering note: E moved to step 4, BV/PT to step 5, PT warning to step 6)
@@ -3540,37 +3629,48 @@ def main():
 
                 # 8. DZ (Divide by Zero) — albedo when SWin < 20 W/m²
                 # Per Notes: "Flag DZ if SWin_Avg < 20" (too dark to compute meaningful albedo)
-                if 'SWalbedo_Avg' in df.columns and 'SWin_Avg' in df.columns:
-                    sw_in = pd.to_numeric(df['SWin_Avg'], errors='coerce')
+                for sw_col in _variant_family_columns(df, 'SWin_Avg'):
+                    variant_suffix = output_column_variant_suffix(sw_col)
+                    albedo_col = _resolve_dep_col(df, 'SWalbedo_Avg', variant_suffix)
+                    if not albedo_col:
+                        continue
+                    sw_in = pd.to_numeric(df[sw_col], errors='coerce')
                     mask_dz = sw_in < 20
                     if mask_dz.any():
-                        fc = 'SWalbedo_Avg_Flag'
+                        fc = f'{albedo_col}_Flag'
                         if fc not in df.columns:
                             df[fc] = ""
                         _append_flag(df, fc, mask_dz, "DZ")
 
                 # 9. Dependencies — propagate flags from source to target columns
                 for dep in DEPENDENCY_CONFIG:
-                   target = _resolve_dep_col(df, dep['target'])
-                   if not target or target in TIMESTAMP_LIKE_COLUMNS:
-                       continue
-                   tfc = f"{target}_Flag"
-                   if tfc not in df.columns:
-                       continue
+                   target_candidates = _variant_family_columns(df, dep['target'])
+                   if not target_candidates:
+                       target = _resolve_dep_col(df, dep['target'])
+                       target_candidates = [target] if target else []
 
-                   mask_fail = pd.Series(False, index=df.index)
-                   for src in dep['sources']:
-                       src_col = _resolve_dep_col(df, src)
-                       if not src_col: continue
-                       sfc = f"{src_col}_Flag"
-                       if sfc not in df.columns:
+                   for target in target_candidates:
+                       if not target or is_timestamp_like_output_column(target):
                            continue
-                       curr_s = df[sfc].fillna("").astype(str)
-                       pat = "|".join([rf"\b{f}\b" for f in dep['trigger_flags']])
-                       mask_fail = mask_fail | curr_s.str.contains(pat, regex=True)
+                       tfc = f"{target}_Flag"
+                       if tfc not in df.columns:
+                           continue
 
-                   if mask_fail.any():
-                       _append_flag(df, tfc, mask_fail, dep['set_flag'])
+                       variant_suffix = output_column_variant_suffix(target)
+                       mask_fail = pd.Series(False, index=df.index)
+                       for src in dep['sources']:
+                           src_col = _resolve_dep_col(df, src, variant_suffix)
+                           if not src_col:
+                               continue
+                           sfc = f"{src_col}_Flag"
+                           if sfc not in df.columns:
+                               continue
+                           curr_s = df[sfc].fillna("").astype(str)
+                           pat = "|".join([rf"\b{f}\b" for f in dep['trigger_flags']])
+                           mask_fail = mask_fail | curr_s.str.contains(pat, regex=True)
+
+                       if mask_fail.any():
+                           _append_flag(df, tfc, mask_fail, dep['set_flag'])
 
                 # 9.5 Normalize all flag strings
                 # Prevent duplicates like "C, Z, Z" when multiple logic layers add same token.
@@ -3589,15 +3689,14 @@ def main():
                         'SR50AT_Q_Avg', 'SR50AT_TCDT_Avg', 'SR50AT_DBTCDT_Avg',
                         'SV_DT_Avg', 'SV_Q_Avg', 'SV_TCDT_Avg', 'SV_DBTCDT_Avg',
                     ]
-                    for sr_col in sr50_sf_cols:
-                        if sr_col not in df.columns:
-                            continue
-                        fc = f'{sr_col}_Flag'
-                        if fc not in df.columns:
-                            df[fc] = ""
-                        vals_sr = pd.to_numeric(df[sr_col], errors='coerce')
-                        mask_sf = months.isin(snow_free_months) & vals_sr.notna()
-                        _append_flag(df, fc, mask_sf, 'SF')
+                    for sr_col_base in sr50_sf_cols:
+                        for sr_col in _variant_family_columns(df, sr_col_base):
+                            fc = f'{sr_col}_Flag'
+                            if fc not in df.columns:
+                                df[fc] = ""
+                            vals_sr = pd.to_numeric(df[sr_col], errors='coerce')
+                            mask_sf = months.isin(snow_free_months) & vals_sr.notna()
+                            _append_flag(df, fc, mask_sf, 'SF')
 
                 # 11. Pass Flags (P) — clean data with no flags
                 for col in df.columns:
@@ -3611,10 +3710,8 @@ def main():
                                 df.loc[mask_p, col] = 'P'
 
                 # Ensure timestamp-like TMx fields never carry flag columns.
-                for ts_col in TIMESTAMP_LIKE_COLUMNS:
-                    ts_fc = f"{ts_col}_Flag"
-                    if ts_fc in df.columns:
-                        df = df.drop(columns=[ts_fc])
+                for ts_col in [c for c in df.columns if c.endswith("_Flag") and is_timestamp_like_output_column(c[:-5])]:
+                    df = df.drop(columns=[ts_col])
 
                 return df
 
