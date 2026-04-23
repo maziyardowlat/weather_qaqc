@@ -468,6 +468,104 @@
             }
         }
     },
+    "T107": {
+        "sensor_height": 0,
+        "thresholds": {
+            "Gtmp_Avg": {
+                "r_min": -50.0,
+                "r_max": 70.0,
+                "c_min": null,
+                "c_max": null
+            }
+        }
+    },
+    "SR50_236": {
+        "sensor_height": 236,
+        "thresholds": {
+            "DT_Avg": {
+                "r_min": 50.0,
+                "r_max": 1000.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "Q_Avg": {
+                "r_min": 162.0,
+                "r_max": 600.0,
+                "c_min": null,
+                "c_max": 210.0
+            },
+            "TCDT_Avg": {
+                "r_min": 50.0,
+                "r_max": 1000.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "DBTCDT_Avg": {
+                "r_min": 0.0,
+                "r_max": 186.0,
+                "c_min": null,
+                "c_max": null
+            }
+        }
+    },
+    "SR50_229": {
+        "sensor_height": 229,
+        "thresholds": {
+            "DT_Avg": {
+                "r_min": 50.0,
+                "r_max": 1000.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "Q_Avg": {
+                "r_min": 162.0,
+                "r_max": 600.0,
+                "c_min": null,
+                "c_max": 210.0
+            },
+            "TCDT_Avg": {
+                "r_min": 50.0,
+                "r_max": 1000.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "DBTCDT_Avg": {
+                "r_min": 0.0,
+                "r_max": 179.0,
+                "c_min": null,
+                "c_max": null
+            }
+        }
+    },
+    "SR50_300": {
+        "sensor_height": 300,
+        "thresholds": {
+            "DT_Avg": {
+                "r_min": 50.0,
+                "r_max": 1000.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "Q_Avg": {
+                "r_min": 162.0,
+                "r_max": 600.0,
+                "c_min": null,
+                "c_max": 210.0
+            },
+            "TCDT_Avg": {
+                "r_min": 50.0,
+                "r_max": 1000.0,
+                "c_min": null,
+                "c_max": null
+            },
+            "DBTCDT_Avg": {
+                "r_min": 0.0,
+                "r_max": 250.0,
+                "c_min": null,
+                "c_max": null
+            }
+        }
+    },
     "SR50_2": {
         "sensor_height": 150,
         "thresholds": {

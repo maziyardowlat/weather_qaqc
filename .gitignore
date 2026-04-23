@@ -1,6 +1,8 @@
 weatherqa/
 __pycache__/
 *.pyc
+*02MF005_tidy_historical.csv
+*02MF005_concatenated_tidy.csv
 .DS_Store
 data/saved_graphs
 data/.xlsx

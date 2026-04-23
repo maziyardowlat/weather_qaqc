@@ -577,7 +577,8 @@
             "gtmp",
             "gtmp_12_Avg",
             "Soil_T109_15cm_C_Avg",
-            "T107_C"
+            "T107_C",
+            "gtmp_15_Avg"
         ],
         "unit": "Deg C",
         "unit_aliases": [
@@ -786,8 +787,7 @@
             "Gtmp_15cm_Avg",
             "Temp4_15cm_Avg",
             "gtmp_15cm",
-            "gtmp_15cm_avg",
-            "gtmp_15_Avg"
+            "gtmp_15cm_avg"
         ],
         "unit": "Deg C",
         "unit_aliases": [

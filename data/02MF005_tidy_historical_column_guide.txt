@@ -1,0 +1,101 @@
+02MF005_tidy_historical.csv - compiled column guide
+
+This note explains the compiled column names in 02MF005_tidy_historical.csv.
+It is meant to clarify the cleaned/compiled output, because MetadataLog (2).xlsx
+describes raw parameter names and sensors, but it does not explain the compiled
+suffix conventions like "_2".
+
+General rules used in this compiled file
+---------------------------------------
+1. Unsuffixed base columns are the main compiled family for that parameter.
+2. A "_2" suffix means a second instrument family for the same parameter.
+3. "Original_*" columns are preserved historical/original values and are kept
+   separate on purpose. They are not ClimaVue columns.
+4. Some shared columns do not get a suffix. Instead, the instrument supplying
+   that shared column changes by deployment date.
+
+Wind columns
+------------
+WS_ms_Avg            = 5103 wind speed
+WS_Std               = 5103 wind speed variability/std
+WindDir              = 5103 wind direction
+WindDir_Avg          = 5103 averaged wind direction
+WindDir_SD1_WVT      = 5103 wind direction spread/std companion
+
+WS_ms_Avg_2          = ClimaVue50 G2 @ 275 cm wind speed
+WindDir_2            = ClimaVue50 G2 @ 275 cm wind direction
+WindDir_SD1_WVT_2    = ClimaVue50 G2 @ 275 cm wind direction spread/std
+MaxWS_ms_Avg         = ClimaVue50 G2 maximum wind speed
+MaxWS_ms_TMx         = timestamp for the ClimaVue maximum wind speed
+
+Original_WindDir     = preserved historical/original 5103 wind direction
+Original_WindDir_Avg = preserved historical/original 5103 averaged wind direction
+
+Important note:
+Original_WindDir and Original_WindDir_Avg belong with the 5103 family, not the
+ClimaVue family. They were kept separate because the historical workbook
+contains both corrected/base wind columns and original wind columns.
+
+Shared columns whose source changes by date
+-------------------------------------------
+AirT_C_Avg
+  - through 2025-08-07 13:00:00: HMP45
+  - from 2025-08-07 13:15:00 onward: ClimaVue50 G2
+
+RH
+  - through 2025-08-07 13:00:00: HMP45
+  - from 2025-08-07 13:15:00 onward: ClimaVue50 G2
+
+BP_hPa_Avg
+  - through 2025-08-07 13:00:00: 61205V
+  - from 2025-08-07 13:15:00 onward: ClimaVue50 G2
+
+Rain_mm_Tot
+  - historical/main pre-ClimaVue source: tipping bucket rain gauge family
+  - from 2025-08-07 13:15:00 onward: ClimaVue50 G2
+
+Ground temperature
+------------------
+Gtmp_Avg = T107 ground temperature stream for this station.
+Both of these raw names were intentionally unified into Gtmp_Avg:
+  - T107_C
+  - gtmp_15_Avg
+
+Snow-depth family
+-----------------
+DT_Avg, TCDT_Avg, and DBTCDT_Avg are the snow-depth family.
+These come from the SR50 / SR50A deployment history, where sensor height
+changes over time and matters for snow-depth threshold interpretation.
+
+Other ClimaVue-specific outputs
+-------------------------------
+VP_hPa_Avg
+RHT_C_Avg
+TiltNS_deg_Avg
+TiltWE_deg_Avg
+SlrFD_W_Avg
+SlrTF_MJ_Tot
+Strikes_Tot
+Dist_km_Max
+Dist_km_TMx
+
+These are all ClimaVue50 G2 outputs in this compiled file.
+
+System / metadata-style fields
+------------------------------
+BattV_Avg      = system/logger battery voltage
+PTemp_C_Avg    = logger panel/internal temperature
+RECORD         = logger record number
+UTC Offset     = timestamp offset field
+Data_ID        = file/import identifier field used in the compiled output
+Station_ID     = station code
+Logger_ID      = logger identifier
+Logger_Script  = logger program/script metadata
+Logger_Software= logger software metadata
+
+Not carried into this cleaned tidy file
+---------------------------------------
+CVMeta
+Invalid_Wind_Avg
+
+These were intentionally not kept as final cleaned data columns.

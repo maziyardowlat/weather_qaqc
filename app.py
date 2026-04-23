@@ -530,8 +530,10 @@ COLUMN_ALIASES = {
 THRESHOLD_KEY_EQUIVALENTS = {
     'MaxWS_ms_Avg': ['MaxWS_ms'],
     'MaxWS_ms': ['MaxWS_ms_Avg'],
-    'WindDir_Avg': ['WindDir'],
-    'WindDir': ['WindDir_Avg'],
+    'WindDir_Avg': ['WindDir', 'Original_WindDir_Avg'],
+    'WindDir': ['WindDir_Avg', 'Original_WindDir'],
+    'Original_WindDir': ['WindDir'],
+    'Original_WindDir_Avg': ['WindDir_Avg'],
     'RHT_C_Avg': ['RHT_Avg'],
     'RHT_Avg': ['RHT_C_Avg'],
     'WindDir_SD1': ['WindDir_SD1_WVT'],
@@ -543,6 +545,10 @@ THRESHOLD_KEY_EQUIVALENTS = {
 DEPENDENCY_KEY_EQUIVALENTS = {
     'MaxWS_ms_Avg': ['MaxWS_ms'],
     'MaxWS_ms': ['MaxWS_ms_Avg'],
+    'WindDir': ['Original_WindDir'],
+    'Original_WindDir': ['WindDir'],
+    'WindDir_Avg': ['Original_WindDir_Avg'],
+    'Original_WindDir_Avg': ['WindDir_Avg'],
     'RHT_C_Avg': ['RHT_Avg'],
     'RHT_Avg': ['RHT_C_Avg'],
     'WindDir_SD1': ['WindDir_SD1_WVT'],
@@ -727,6 +733,21 @@ def parse_metadata_family_context(raw_bytes):
 
     return context
 
+def should_preserve_legacy_source_column(source_col, target_col=None):
+    """
+    Preserve historical/legacy source columns such as ``Original_*`` as their
+    own compiled outputs instead of silently merging them into the base target.
+    They still inherit thresholds/dependencies from the selected canonical
+    target via the equivalence tables above.
+    """
+    if not isinstance(source_col, str):
+        return False
+    source_text = source_col.strip()
+    if not source_text.startswith("Original_"):
+        return False
+    target_text = "" if target_col is None else str(target_col).strip()
+    return target_text not in ["", "REMOVE"]
+
 def resolve_source_family_key(source_col, metadata_context=None):
     """
     Resolve a raw source column to a metadata sensor family when possible.
@@ -776,12 +797,16 @@ def build_compiled_mapping(mapping, metadata_context=None):
         if not family_label:
             family_label = str(source)
 
+        compiled_column = None
+        if should_preserve_legacy_source_column(source, target_text):
+            compiled_column = str(source).strip()
+
         families_by_target.setdefault(base_target, set()).add(family_key)
         first_seen_order.setdefault((base_target, family_key), order_idx)
         source_details.append({
             "source": source,
             "selected_target": base_target,
-            "compiled_column": None,
+            "compiled_column": compiled_column,
             "family_key": family_key,
             "family_label": family_label,
         })
@@ -808,6 +833,8 @@ def build_compiled_mapping(mapping, metadata_context=None):
         selected_target = item["selected_target"]
         if selected_target in ["", "REMOVE"]:
             compiled = selected_target
+        elif item["compiled_column"]:
+            compiled = item["compiled_column"]
         else:
             compiled = compiled_names[(selected_target, item["family_key"])]
         resolved[source] = compiled
@@ -1000,12 +1027,18 @@ def resolve_output_unit(col, df, mapping, station_name=None):
     when a canonical column is shared by multiple instrument families.
     """
     lookup_col = base_output_column_name(col)
-    info = mapping.get(lookup_col)
+    info = None
+    canonical_col = lookup_col
+    for key in threshold_key_variants(col):
+        maybe_info = mapping.get(key)
+        if isinstance(maybe_info, dict):
+            info = maybe_info
+            canonical_col = key
+            break
     if not isinstance(info, dict):
         return "nan"
 
     unit_val = info.get('unit', 'nan') or 'nan'
-    canonical_col = lookup_col
     overrides = SENSOR_SPECIFIC_OUTPUT_UNITS.get(canonical_col, {})
     if not overrides or station_name is None or 'TIMESTAMP' not in df.columns:
         return unit_val
@@ -2582,8 +2615,9 @@ def main():
                         if duplicate_rows:
                             st.info(
                                 "Duplicate target names detected. The compiled file will group "
-                                "same-sensor aliases together and only use `_2`, `_3`, etc. for "
-                                "different metadata families."
+                                "same-sensor aliases together, preserve `Original_*` legacy "
+                                "columns, and only use `_2`, `_3`, etc. for different metadata "
+                                "families."
                             )
                             st.dataframe(
                                 pd.DataFrame(duplicate_rows),
@@ -3655,22 +3689,27 @@ def main():
                             st.warning(f"Config Error in wind-direction validity logic ({dep}): {e}")
                     mask_no_wind_dir = ws.notna() & (ws <= wind_dir_limit)
 
-                    wind_dir_col = _resolve_dep_col(df, 'WindDir', variant_suffix)
-                    if mask_no_wind_dir.any() and wind_dir_col:
-                        fc = f'{wind_dir_col}_Flag'
-                        if fc not in df.columns:
-                            df[fc] = ""
-                        _append_flag(df, fc, mask_no_wind_dir, 'NV')
+                    if mask_no_wind_dir.any():
+                        for wind_dir_col in [
+                            c for c in _variant_family_columns(df, 'WindDir')
+                            if output_column_variant_suffix(c) == variant_suffix
+                        ]:
+                            fc = f'{wind_dir_col}_Flag'
+                            if fc not in df.columns:
+                                df[fc] = ""
+                            _append_flag(df, fc, mask_no_wind_dir, 'NV')
 
                     if mask_no_wind.any():
                         for partner_base in ['WindDir_Avg', 'WindDir_SD1_WVT', 'WindDir_SD1', 'WS_Std', 'MaxWS_ms', 'MaxWS_ms_Avg', 'MaxWS_ms_Max']:
-                            partner_col = _resolve_dep_col(df, partner_base, variant_suffix)
-                            if not partner_col:
-                                continue
-                            fc_partner = f'{partner_col}_Flag'
-                            if fc_partner not in df.columns:
-                                df[fc_partner] = ""
-                            _append_flag(df, fc_partner, mask_no_wind, 'NV')
+                            partner_cols = [
+                                c for c in _variant_family_columns(df, partner_base)
+                                if output_column_variant_suffix(c) == variant_suffix
+                            ]
+                            for partner_col in partner_cols:
+                                fc_partner = f'{partner_col}_Flag'
+                                if fc_partner not in df.columns:
+                                    df[fc_partner] = ""
+                                _append_flag(df, fc_partner, mask_no_wind, 'NV')
 
                 # Lightning-distance validity flags:
                 # Dist_km_Avg and Dist_km_Max are valid only when Strikes_Tot > 0.
