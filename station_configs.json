@@ -326,5 +326,10 @@
         "latitude": 53.9272,
         "longitude": -123.2583,
         "deployments": []
+    },
+    "02PE002": {
+        "latitude": 55.751167,
+        "longitude": -120.524111,
+        "deployments": []
     }
 }
