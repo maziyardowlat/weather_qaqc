@@ -25,6 +25,7 @@ st.set_page_config(page_title="NHG Weather Pipeline", layout="wide")
 MAPPING_FILE = "column_mapping.json"
 GROUPS_FILE = "instrument_groups.json"
 STATION_CONFIG_FILE = "station_configs.json"
+EXCEL_DATA_SKIPROWS = [1, 2]
 
 # ---------------------------------------------------------------------------
 # SENSOR_THRESHOLDS — two-tier threshold table derived from RefSensorThresholds.xlsx
@@ -59,6 +60,7 @@ SENSOR_THRESHOLDS = {
     'RHT_C_Avg':      {'r_min': -40.0, 'r_max': 60.0,   'c_min': None,  'c_max': None},
     'RHT_Avg':        {'r_min': -40.0, 'r_max': 60.0,   'c_min': None,  'c_max': None},
     'SlrFD_W_Avg':    {'r_min': 0.0,   'r_max': 1750.0, 'c_min': 0.0,   'c_max': 1360.0},
+    'SlrFD_W_Std':    {'r_min': 0.0,   'r_max': 2000.0, 'c_min': None,  'c_max': None},
     'Rain_mm_Tot':    {'r_min': 0.0,   'r_max': 100.0,  'c_min': 0.0,   'c_max': 12.5},
     'Strikes_Tot':    {'r_min': 0.0,   'r_max': 65535.0,'c_min': None,  'c_max': None},
     'Dist_km_Avg':    {'r_min': 0.0,   'r_max': 40.0,   'c_min': None,  'c_max': None},
@@ -210,6 +212,14 @@ INITIAL_INSTRUMENT_GROUPS = {
             'Q_Avg':       {'r_min': 162, 'r_max': 600,  'c_min': None, 'c_max': 210},
             'TCDT_Avg':    {'r_min': 50,  'r_max': 1000, 'c_min': None, 'c_max': None},
             'DBTCDT_Avg':  {'r_min': 0,   'r_max': 'H-50', 'c_min': None, 'c_max': None},
+        },
+    },
+    'CMP3': {
+        'sensor_height': 245,
+        'thresholds': {
+            'SlrFD_W_Avg': {'r_min': 0, 'r_max': 2000, 'c_min': 0, 'c_max': 1360},
+            'SlrFD_W_Std': {'r_min': 0, 'r_max': 2000, 'c_min': None, 'c_max': None},
+            'SlrTF_MJ_Tot': {'r_min': 0, 'r_max': 1.8, 'c_min': 0, 'c_max': 1.215},
         },
     },
     '5103': {
@@ -370,6 +380,8 @@ DEPENDENCY_CONFIG = [
     {'target': 'SlrTF_MJ_Tot', 'sources': ['SlrFD_W_Avg'],                      'trigger_flags': ['R', 'E', 'M'], 'set_flag': 'DF'},
     # SlrTF inherits Z from SlrFD_W_Avg
     {'target': 'SlrTF_MJ_Tot', 'sources': ['SlrFD_W_Avg'],                      'trigger_flags': ['Z'], 'set_flag': 'Z'},
+    # CMP3 — solar standard deviation depends on the underlying solar flux channel.
+    {'target': 'SlrFD_W_Std',  'sources': ['SlrFD_W_Avg'],                      'trigger_flags': ['R', 'E', 'M', 'DF'], 'set_flag': 'DF'},
 
     # ClimaVUE50 — wind direction and gust invalid when wind speed == 0 (NV flag applied in pipeline)
     # WindDir/MaxWS also receive DF when WS has hard/error dependency failure.
@@ -540,6 +552,8 @@ THRESHOLD_KEY_EQUIVALENTS = {
     'WindDir_SD1_WVT': ['WindDir_SD1'],
     'SRTmp_C_Avg': ['SR50AT_SRTmp_C_Avg'],
     'SR50AT_SRTmp_C_Avg': ['SRTmp_C_Avg'],
+    'Gtmp_24cm depth': ['Gtmp_Avg'],
+    'GTMP_13cm': ['Gtmp_Avg'],
 }
 
 DEPENDENCY_KEY_EQUIVALENTS = {
@@ -969,6 +983,18 @@ def normalize_group_threshold_aliases(groups):
             grp_data["thresholds"] = thresholds
     return groups
 
+def convert_source_units_for_target(source_col, target_col, values):
+    """
+    Apply source-specific unit conversions after column mapping.
+    Kiskatinaw Solar_Tot values are J/m^2 interval totals; canonical SlrTF uses MJ/m^2.
+    """
+    if (
+        str(source_col).strip() == "Solar_Tot"
+        and base_output_column_name(str(target_col).strip()) == "SlrTF_MJ_Tot"
+    ):
+        return pd.to_numeric(values, errors="coerce") / 1_000_000
+    return values
+
 def load_json_file(filepath, default=None):
     if default is None: default = {}
     if os.path.exists(filepath):
@@ -1125,8 +1151,8 @@ def load_csv_preview(file, skip_rows=None):
         skip_rows = [0, 2, 3]  # TOA5 standard: env header, units, processing type
     try:
         if file.name.endswith(('.xlsx', '.xls')):
-            # Excel historical/logger exports usually have row 1 as headers and row 2 as units.
-            df = pd.read_excel(file, skiprows=[1], nrows=5, keep_default_na=False)
+            # Excel historical/logger exports use row 1 as headers, then units/height metadata rows.
+            df = pd.read_excel(file, skiprows=EXCEL_DATA_SKIPROWS, nrows=5, keep_default_na=False)
         else:
             df = pd.read_csv(file, skiprows=skip_rows, nrows=5, keep_default_na=False)
         file.seek(0)
@@ -1491,8 +1517,8 @@ def process_file_data(
         
         if is_excel:
             # Read Excel file
-            # Assume data starts at row 3 (row 1 = headers, row 2 = units)
-            df = pd.read_excel(uploaded_file, skiprows=[1],  # Skip units row
+            # Assume row 1 = headers, row 2 = units, row 3 = height/depth metadata.
+            df = pd.read_excel(uploaded_file, skiprows=EXCEL_DATA_SKIPROWS,
                              na_values=['NAN', '"NAN"', '', '-7999', '7999'])
         else:
             # Read CSV/TOA5 file.
@@ -1520,13 +1546,14 @@ def process_file_data(
             target = mapping.get(col, col)
             if target == "REMOVE":
                 continue
+            converted_values = convert_source_units_for_target(col, target, df[col])
 
             if target not in merged_df.columns:
-                merged_df[target] = df[col]
+                merged_df[target] = converted_values
                 continue
 
             existing = merged_df[target]
-            incoming = df[col]
+            incoming = converted_values
             keep_existing = existing.notna()
             try:
                 keep_existing = keep_existing & (existing.astype(str).str.strip() != "")
@@ -2319,7 +2346,7 @@ def main():
                             if file.name.endswith(('.xlsx', '.xls')):
                                 _ts_df = pd.read_excel(
                                     file,
-                                    skiprows=[1],  # Skip Excel units row
+                                    skiprows=EXCEL_DATA_SKIPROWS,
                                     usecols=['TIMESTAMP'],
                                     na_values=['NAN', '"NAN"', ''],
                                     keep_default_na=True

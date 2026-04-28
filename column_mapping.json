@@ -2,7 +2,8 @@
     "TIMESTAMP": {
         "aliases": [
             "TIMESTAMP",
-            "timestamp"
+            "timestamp",
+            "Timestamp"
         ],
         "unit": "TS",
         "unit_aliases": [
@@ -13,7 +14,8 @@
     "RECORD": {
         "aliases": [
             "RECORD",
-            "record"
+            "record",
+            "Record"
         ],
         "unit": "RN",
         "unit_aliases": [
@@ -73,7 +75,19 @@
             "SlrFD",
             "Solar_W",
             "SlrFD_W_Avg",
-            "slr_fd"
+            "slr_fd",
+            "Solar_Avg"
+        ],
+        "unit": "W/m^2",
+        "unit_aliases": [
+            "W/m^2",
+            "Watts/meter^2"
+        ]
+    },
+    "SlrFD_W_Std": {
+        "aliases": [
+            "Solar_Std",
+            "slr_fd_sd"
         ],
         "unit": "W/m^2",
         "unit_aliases": [
@@ -216,7 +230,8 @@
             "T109_AirT_C_Avg",
             "atmp_30_Avg",
             "Air_55cm_T109_C_Avg",
-            "Air_T109_45cm_C_Avg"
+            "Air_T109_45cm_C_Avg",
+            "T109_3"
         ],
         "unit": "Deg C",
         "unit_aliases": [
@@ -316,7 +331,8 @@
             "SlrTF",
             "Solar_MJ",
             "SlrTF_MJ_Tot",
-            "slr_tf"
+            "slr_tf",
+            "Solar_Tot"
         ],
         "unit": "MJ/m^2",
         "unit_aliases": [
@@ -579,6 +595,28 @@
             "Soil_T109_15cm_C_Avg",
             "T107_C",
             "gtmp_15_Avg"
+        ],
+        "unit": "Deg C",
+        "unit_aliases": [
+            "Deg C",
+            "C",
+            "degC"
+        ]
+    },
+    "Gtmp_24cm depth": {
+        "aliases": [
+            "T109_1"
+        ],
+        "unit": "Deg C",
+        "unit_aliases": [
+            "Deg C",
+            "C",
+            "degC"
+        ]
+    },
+    "GTMP_13cm": {
+        "aliases": [
+            "T109_2"
         ],
         "unit": "Deg C",
         "unit_aliases": [
